@@ -132,7 +132,7 @@ type CivecmI1 <: Civecm
 	eigvecs::Matrix
 end
 
-function CivecmI1(endogenous::Matrix, exogenous::VecOrMat, lags::Int64)
+function CivecmI1(endogenous::Matrix, exogenous::Matrix, lags::Int64)
 	mDX = diff(endogenous)
 	mLDX = lagmatrix(mDX, 1:lags - 1)
 	mDU = diff(exogenous)
@@ -154,6 +154,8 @@ function CivecmI1(endogenous::Matrix, exogenous::VecOrMat, lags::Int64)
 
 	return CivecmI1(endogenous, exogenous, 2, Array(Float64, size(endogenous, 2), size(endogenous, 2)), Array(Float64, size(endogenous, 2), size(endogenous, 2)), 1.0e-8, 5000, Z0, Z1, Z2, R0, R1, eigvals, eigvecs)
 end
+
+CivecmI1(endogenous::Matrix, lags::Int64) = CivecmI1(endogenous, zeros(size(endogenous, 1), 0), lags)
 
 function setrank(obj::CivecmI1, rank::Int64)
 	return estimateEigen(obj, rank)
