@@ -32,13 +32,13 @@ function rrr(Y::Matrix{Float64}, X::Matrix{Float64})
 	(iT, iX) = size(X)
 	iY = size(Y, 2)
 	(Ux, Sx, Vx) = svd(X, 0)
-	(Uy, ~, ~) = svd(Y, 0)
-	(Uz, Sz, ~) = svd(Ux' * Uy, 0)
+	Uy = svd(Y, 0)[1]
+	Uz, Sz = svd(Ux' * Uy, 0)[1:2]
 	values = Sz.^2
-	Sm1 = zeros(size(values));
-	index = Sx .> 10e-9 * max(max(X));
-	Sm1[index] = 1 ./ Sx[index];
-	vectors = sqrt(iT) * Vx * diagm(Sm1) * Uz;
+	Sm1 = zeros(size(values))
+	index = Sx .> 10e-9 * max(max(X))
+	Sm1[index] = 1 ./ Sx[index]
+	vectors = sqrt(iT) * Vx * diagm(Sm1) * Uz
 	return (values, vectors)
 end
 
@@ -144,8 +144,8 @@ function CivecmI1(endogenous::Matrix, exogenous::VecOrMat, lags::Int64)
 		Z2 = [Z2 mLDU]
 	end
 	if size(Z2, 2) > 0
-		(~, R0) = mreg(Z0, Z2)
-		(~, R1) = mreg(Z1, Z2)
+		R0 = mreg(Z0, Z2)[2]
+		R1 = mreg(Z1, Z2)[2]
 	else
 		R0 = Z0
 		R1 = Z1
@@ -162,7 +162,7 @@ end
 function estimateEigen(obj::CivecmI1, rank::Int64)
 	(obj.eigvals, obj.eigvecs) = rrr(obj.R0, obj.R1, size(obj.R0, 2))
 	obj.beta = obj.eigvecs[:, 1:rank]
-	(obj.alpha, ~) = mreg(obj.R0, obj.R1 * obj.beta)
+	obj.alpha = mreg(obj.R0, obj.R1 * obj.beta)[1]
 	obj.alpha = obj.alpha'
 	return obj
 end
@@ -226,9 +226,9 @@ function CivecmI2(endogenous::Matrix, exogenous::Matrix, lags::Int64)
 	    Z3 = [Z3 mLDDU]
 	end
 	if size(Z3, 2) > 0
-		(~, R0) = mreg(Z0, Z3)
-		(~, R1) = mreg(Z1, Z3)
-		(~, R2) = mreg(Z2, Z3)
+		R0 = mreg(Z0, Z3)[2]
+		R1 = mreg(Z1, Z3)[2]
+		R2 = mreg(Z2, Z3)[2]
 	else
 		R0 = Z0
 		R1 = Z1
@@ -280,14 +280,14 @@ function estimate(obj::CivecmI2)
 			# Initialisation
 		
 			if obj.rank[1] == 0
-				(~, obj.gamma) = rrr(obj.R0, obj.R1, obj.rank[2])
-				(tmpxi, ~) = mreg(obj.R0, obj.R1 * obj.gamma)
+				obj.gamma = rrr(obj.R0, obj.R1, obj.rank[2])[2]
+				tmpxi = mreg(obj.R0, obj.R1 * obj.gamma)[1]
 				obj.xi = tmpxi'
 			elseif ip == sum(obj.rank)
 				tmpFit = setrank(CivecmI1(obj.endogenous, obj.exogenous, obj.lags), obj.rank[1])
 				obj.alpha = tmpFit.alpha
 				obj.beta = tmpFit.beta
-				(tmpFit2, ~) = mreg(obj.R0, [obj.R1 obj.R2 * obj.beta])
+				tmpFit2 = mreg(obj.R0, [obj.R1 obj.R2 * obj.beta])[1]
 				tmpGam = tmpFit2[1:ip1,:]'
 				obj.sigma = eye(ip, obj.rank[1])
 				obj.nu = (obj.alpha \ (tmpGam - obj.sigma * obj.beta'))'
@@ -301,7 +301,7 @@ function estimate(obj::CivecmI2)
 			for j = 0:obj.maxIter
 				# The AC-step
 				# println(obj.beta)
-				(tmpCoef, ~) = mreg(obj.R0, [obj.R2 * obj.beta + obj.R1 * obj.nu obj.R1 * obj.gamma obj.R1 * obj.beta])
+				tmpCoef = mreg(obj.R0, [obj.R2 * obj.beta + obj.R1 * obj.nu obj.R1 * obj.gamma obj.R1 * obj.beta])[1]
 				obj.alpha = tmpCoef[1:obj.rank[1], :]'
 				obj.xi = tmpCoef[obj.rank[1] + 1:sum(obj.rank),:]'
 				obj.sigma = tmpCoef[sum(obj.rank) + 1:end, :]'
@@ -330,7 +330,7 @@ function estimate(obj::CivecmI2)
 end
 
 function ranktest(obj::CivecmI2)
-	(~, ip) = size(obj.endogenous)
+	ip = size(obj.endogenous, 2)
 	ll0 = logLik(setrank(obj, (ip, 0)))
 	tmpTrace = zeros(ip, ip + 1)
 	for i = 0:ip - 1
