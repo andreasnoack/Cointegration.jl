@@ -5,7 +5,7 @@ function svd{T<:Union(Float64,Float32,Complex128,Complex64)}(A::StridedMatrix{T}
 	if vecs != 0
 		error("Not supported")
 	else
-    	Base._jl_lapack_gesvd('S', 'A', copy(A))
+    	Lapack.gesdd!('S', copy(A))
     end
 end
 
@@ -13,10 +13,10 @@ function eig(A::Matrix, vecs::Bool)
 	if vecs
 		return eig(A)
 	else
-		if ishermitian(A) return Base._jl_lapack_syev('N','U',copy(A)) end
+		if ishermitian(A) return Lapack.syev!('N','U',copy(A)) end
                                         # Only compute right eigenvectors
-		if iscomplex(A) return Base._jl_lapack_geev('N','N',copy(A))[2:3] end
-		VL, WR, WI, VR = Base._jl_lapack_geev('N','N',copy(A))
+		if iscomplex(A) return Lapack.geev!('N','N',copy(A))[2:3] end
+		VL, WR, WI, VR = Lapack.geev!('N','N',copy(A))
 		if all(WI .== 0.) return WR end
 		return complex(WR, WI)
 	end
@@ -67,7 +67,7 @@ function mreg(Y::VecOrMat, X::Matrix)
 	end
 end
 
-logdet(matrix::Matrix) = 2 * sum(log(diag(factors(chol(matrix)))))
+logdet(matrix::Matrix) = 2 * sum(log(diag(chol(matrix))))
 
 function gls(Y::Matrix, X::Matrix, H::Matrix, K::Matrix, k::Vector, Omega::Matrix)
 	(iT, px) = size(X)
@@ -359,7 +359,7 @@ function ranktestpvalues(obj::CivecmI2, testvalues::Matrix, reps::Int64)
 				rankdist[k] = I2TraceSimulate(randn(iT, ip - i), j, obj.exogenous)
 			end
 			pvals[i + 1, i + j + 1] = mean(rankdist .> testvalues[i + 1, i + j + 1])
-			print("Simulation of model H(", i, ",", j, "). ", 100 * (0.5 * i * (i + 1) + i * (ip - i + 1) + j + 1) / (0.5 * ip^2 + 1.5 * ip), " percent completed\r")
+			println("Simulation of model H(", i, ",", j, "). ", 100 * (0.5 * i * (i + 1) + i * (ip - i + 1) + j + 1) / (0.5 * ip^2 + 1.5 * ip), " percent completed")
 		end
 	end
 	return pvals
@@ -397,7 +397,7 @@ function I2TraceSimulate(eps::Matrix{Float64}, s::Int64, exo::Matrix{Float64})
     else
     	g = m1
     end
-    epsOrth = eps / factors(chol(eps'eps / iT))
+    epsOrth = eps / chol(eps'eps / iT)
     tmp1 = eig(fS(epsOrth, g, epsOrth) / iT, false)
     if size(eps, 2) > s
     	tmp2 = eig(fS(epsOrth[:,s + 1:], m2, epsOrth[:,s + 1:]) / iT, false)
