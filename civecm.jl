@@ -5,7 +5,8 @@ function svd{T<:Union(Float64,Float32,Complex128,Complex64)}(A::StridedMatrix{T}
 	if vecs != 0
 		error("Not supported")
 	else
-    	Lapack.gesdd!('S', copy(A))
+		Lapack.gesdd!('S', copy(A))
+		# Lapack.gesvd!('S', 'S',copy(A))
     end
 end
 
@@ -38,7 +39,7 @@ function rrr(Y::Matrix{Float64}, X::Matrix{Float64})
 	Sm1 = zeros(size(values))
 	index = Sx .> 10e-9 * max(max(X))
 	Sm1[index] = 1 ./ Sx[index]
-	vectors = sqrt(iT) * Vx * diagm(Sm1) * Uz
+	vectors = sqrt(iT) * Vx'diagm(Sm1) * Uz
 	return (values, vectors)
 end
 
@@ -287,7 +288,7 @@ function estimate(obj::CivecmI2)
 				obj.alpha = copy(tmpFit.alpha)
 				obj.beta = copy(tmpFit.beta)
 				tmpFit2 = mreg(obj.R0, [obj.R1 obj.R2 * obj.beta])[1]
-				tmpGam = copy(tmpFit2[1:ip1,:]')
+				tmpGam = copy(tmpFit2[1:ip1,:])'
 				obj.sigma = eye(ip, obj.rank[1])
 				obj.nu = (obj.alpha \ (tmpGam - obj.sigma * obj.beta'))'
 			else
@@ -313,7 +314,7 @@ function estimate(obj::CivecmI2)
                 # Residual variable step
                 ll0 = ll
                 mOmega = residualvariance(obj)
-                ll = -0.5 * iT * logdet(mOmega) 
+                ll = -0.5 * iT * logdet(mOmega)
                 if abs(ll - ll0) < obj.llConvCrit
                 	print("Convergence in ", j, " iterations.\n")
                 	break
