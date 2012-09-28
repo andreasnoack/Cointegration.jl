@@ -23,6 +23,36 @@ function eig(A::Matrix, vecs::Bool)
 	end
 end
 
+function gelsd!(A::StridedMatrix{Float64}, B::StridedVecOrMat{Float64})
+    Lapack.chkstride1(A, B)
+    m, n  = size(A)
+    if size(B,1) == n; throw(Lapack.LapackDimMisMatch("gelsd!")); end
+    s     = Array(Float64, min(m, n))
+    rcond = [-1.0]
+    rnk   = Array(Int32, 1)
+    info  = Array(Int32, 1)
+    work  = Array(Float64, 1)
+    lwork = int32(-1)
+    iwork = Array(Int32, 1)
+    for i in 1:2
+        ccall(dlsym(Base.liblapack, "dgelsd_"), Void,
+              (Ptr{Int32}, Ptr{Int32}, Ptr{Int32},
+               Ptr{Float64}, Ptr{Int32}, Ptr{Float64}, Ptr{Int32},
+               Ptr{Float64}, Ptr{Float64}, Ptr{Int32}, Ptr{Float64}, 
+               Ptr{Int32}, Ptr{Int32}, Ptr{Int32}),
+              &m, &n, &size(B,2), A, &max(1,stride(A,2)),
+              B, &max(1,stride(B,2)), s, rcond, rnk, work, &lwork, iwork, info)
+        if info[1] != 0 throw(LapackException(info[1])) end
+        if lwork < 0
+            lwork = int32(real(work[1]))
+            work = Array(Float64, lwork)
+            iwork = Array(Int32, iwork[1])
+        end
+    end
+    B[1:n,:], rnk[1]
+end
+
+
 # Min Civecm kode
 
 abstract Civecm
@@ -36,7 +66,7 @@ function rrr(Y::Matrix{Float64}, X::Matrix{Float64})
 	Uy = svd(Y, 0)[1]
 	Uz, Sz = svd(Ux' * Uy, 0)[1:2]
 	values = Sz.^2
-	Sm1 = zeros(size(values))
+	Sm1 = zeros(iX)
 	index = Sx .> 10e-9 * max(max(X))
 	Sm1[index] = 1 ./ Sx[index]
 	vectors = sqrt(iT) * Vx'diagm(Sm1) * Uz
@@ -54,18 +84,21 @@ function bar(matrix::Matrix)
 end
 
 function mreg(Y::VecOrMat, X::Matrix)
-	try
-		coef = X \ Y
-		residuals = Y - X*coef
-		(coef, residuals)
-	catch
-		(mU, vS, mV) = svd(X, 0)
-		vSinv = zeros(size(vS))
-		vSinv[vS .> 0] = 1 ./ vS[vS .> 0]
-		coef = mV * diagm(vSinv) * mU'Y
-		residuals = Y - X*coef
-		(coef, residuals)		
-	end
+	# try
+	# 	coef = X \ Y
+	# 	residuals = Y - X*coef
+	# 	(coef, residuals)
+	# catch
+	# 	(mU, vS, mV) = svd(X, 0)
+	# 	vSinv = zeros(size(vS))
+	# 	vSinv[vS .> 0] = 1 ./ vS[vS .> 0]
+	# 	coef = mV * diagm(vSinv) * mU'Y
+	# 	residuals = Y - X*coef
+	# 	(coef, residuals)		
+	# end
+	coef = gelsd!(copy(X), copy(Y))[1]
+	residuals = Y - X*coef
+	(coef, residuals)
 end
 
 logdet(matrix::Matrix) = 2 * sum(log(diag(chol(matrix))))
@@ -320,6 +353,7 @@ function estimate(obj::CivecmI2)
                 	break
                 end
             end
+            if norm(obj.nu) > 1.0e6; println(obj.alpha, obj.nu, obj.alpha*obj.nu'); end
             if
 				abs(ll - ll0) < obj.llConvCrit
 				break
