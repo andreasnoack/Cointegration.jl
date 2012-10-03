@@ -64,12 +64,12 @@ function rrr(Y::Matrix{Float64}, X::Matrix{Float64})
 	iY = size(Y, 2)
 	(Ux, Sx, Vx) = svd(X, true)
 	Uy = svd(Y, true)[1]
-	Uz, Sz = svd(Ux' * Uy, true)[1:2]
+	Uz, Sz = svd(Ux'Uy, true)[1:2]
 	values = Sz.^2
 	Sm1 = zeros(iX)
 	index = Sx .> 10e-9 * max(max(X))
 	Sm1[index] = 1 ./ Sx[index]
-	vectors = sqrt(iT) * Vx'diagm(Sm1) * Uz
+	vectors = sqrt(iT) * Vx'diagmm(Sm1, Uz)
 	return (values, vectors)
 end
 
@@ -201,7 +201,7 @@ end
 function estimateEigen(obj::CivecmI1, rank::Int64)
 	(obj.eigvals, obj.eigvecs) = rrr(obj.R0, obj.R1, size(obj.R0, 2))
 	obj.beta = copy(obj.eigvecs[:, 1:rank])
-	obj.alpha = mreg(obj.R0, obj.R1 * obj.beta)[1]'
+	obj.alpha = mreg(obj.R0, obj.R1 * obj.beta)[1]' #'
 	return obj
 end
 
@@ -293,22 +293,22 @@ function estimate(obj::CivecmI2)
 	ip1 = size(obj.R1, 2)
 
 	if max(obj.rank) == 0
-		obj.alpha = zeros(ip, obj.rank[1])
-		obj.beta = zeros(ip1, obj.rank[1])
-		obj.nu = zeros(ip1, obj.rank[1])            
-		obj.xi = zeros(ip, obj.rank[2])
-		obj.gamma = zeros(ip1, obj.rank[2])
-		obj.sigma = zeros(ip, obj.rank[1])
+		obj.alpha 	= zeros(ip, obj.rank[1])
+		obj.beta 	= zeros(ip1, obj.rank[1])
+		obj.nu 		= zeros(ip1, obj.rank[1])            
+		obj.xi 		= zeros(ip, obj.rank[2])
+		obj.gamma 	= zeros(ip1, obj.rank[2])
+		obj.sigma 	= zeros(ip, obj.rank[1])
 	elseif obj.rank[1] == ip
-		tmpFit = setrank(CivecmI1(obj.endogenous, obj.exogenous, obj.lags), obj.rank[1])
-		obj.alpha = copy(tmpFit.alpha)
-		obj.beta = copy(tmpFit.beta)
-		obj.sigma = eye(ip, obj.rank[1])
-		tmpFit2 = [obj.R1 obj.R2 * obj.beta] \ obj.R0
-		tmpGam = copy(tmpFit2[1:ip1,:])'
-		obj.nu = (obj.alpha \ (tmpGam - obj.sigma * obj.beta'))'
-		obj.xi = zeros(ip, 0)
-		obj.gamma = zeros(ip1, 0)
+		tmpFit 		= setrank(CivecmI1(obj.endogenous, obj.exogenous, obj.lags), obj.rank[1])
+		obj.alpha 	= copy(tmpFit.alpha)
+		obj.beta 	= copy(tmpFit.beta)
+		obj.sigma 	= eye(ip, obj.rank[1])
+		tmpFit2 	= [obj.R1 obj.R2 * obj.beta] \ obj.R0
+		tmpGam 		= copy(tmpFit2[1:ip1,:])'
+		obj.nu 		= (obj.alpha \ (tmpGam - obj.sigma * obj.beta'))'
+		obj.xi 		= zeros(ip, 0)
+		obj.gamma 	= zeros(ip1, 0)
 	else
 		tmp1 = speye(2 * obj.rank[1] + obj.rank[2] + 1, 2 * obj.rank[1] + obj.rank[2])
 		tmp2 = copy(tmp1[[reshape(reshape(1:2 * obj.rank[1], obj.rank[1], 2)', 2 * obj.rank[1]), reshape([(2 * obj.rank[1] + obj.rank[2] + 1) * ones(Int, obj.rank[2]) (1:obj.rank[2]) + 2 * obj.rank[1]]', 2 * obj.rank[2]), reshape([(2 * obj.rank[1] + obj.rank[2] + 1) * ones(Int, obj.rank[1]) 1:obj.rank[1]]', 2 * obj.rank[1])], :])
@@ -341,10 +341,10 @@ function estimate(obj::CivecmI2)
 					obj.xi 		= randn(ip, obj.rank[2])
 					mOmega 		= residualvariance(obj)
 				else
-					obj.beta = randn(ip1, obj.rank[1])
-					obj.nu = randn(ip1, obj.rank[1])            
-					obj.gamma = randn(ip1, obj.rank[2])
-					mOmega = residualvariance(obj)
+					obj.beta 	= randn(ip1, obj.rank[1])
+					obj.nu 		= randn(ip1, obj.rank[1])            
+					obj.gamma 	= randn(ip1, obj.rank[2])
+					mOmega 		= residualvariance(obj)
 				end
 			end
 			# else
@@ -358,20 +358,20 @@ function estimate(obj::CivecmI2)
 			for j = 0:obj.maxIter
 				# The AC-step
 				# println(obj.beta)
-				tmpX = [obj.R2 * obj.beta + obj.R1 * obj.nu obj.R1 * obj.gamma obj.R1 * obj.beta]
-				tmpCoef = gelsd!(copy(tmpX'*tmpX), copy(tmpX'*obj.R0))[1]
-				obj.alpha = copy(tmpCoef[1:obj.rank[1], :]')
-				obj.xi = copy(tmpCoef[obj.rank[1] + 1:sum(obj.rank),:]')
-				obj.sigma = copy(tmpCoef[sum(obj.rank) + 1:end, :]')
+				tmpX 		= [obj.R2 * obj.beta + obj.R1 * obj.nu obj.R1 * obj.gamma obj.R1 * obj.beta]
+				tmpCoef 	= gelsd!(copy(tmpX'tmpX), copy(tmpX'obj.R0))[1]
+				obj.alpha 	= copy(tmpCoef[1:obj.rank[1], :]') 					#'
+				obj.xi 		= copy(tmpCoef[obj.rank[1] + 1:sum(obj.rank),:]') 	#'
+				obj.sigma 	= copy(tmpCoef[sum(obj.rank) + 1:end, :]') 			#'
 				# The CC Step ala Rocco
-				tmpCoef = gls(obj.R0, [obj.R2 obj.R1], [obj.alpha obj.xi obj.sigma], K, [], mOmega)
-				obj.nu = copy(tmpCoef[ip1 + 1:, 1:obj.rank[1]])
-				obj.gamma = copy(tmpCoef[ip1 + 1:, obj.rank[1] + 1:sum(obj.rank)])
-				obj.beta = copy(tmpCoef[ip1 + 1:, sum(obj.rank) + 1:])
+				tmpCoef 	= gls(obj.R0, [obj.R2 obj.R1], [obj.alpha obj.xi obj.sigma], K, [], mOmega)
+				obj.nu 		= copy(tmpCoef[ip1 + 1:, 1:obj.rank[1]])
+				obj.gamma 	= copy(tmpCoef[ip1 + 1:, obj.rank[1] + 1:sum(obj.rank)])
+				obj.beta 	= copy(tmpCoef[ip1 + 1:, sum(obj.rank) + 1:])
                 # Residual variable step
-                ll0 = ll
-                mOmega = residualvariance(obj)
-                ll = -0.5 * iT * logdet(mOmega) / iT
+                ll0 		= ll
+                mOmega 		= residualvariance(obj)
+                ll 			= -0.5 * iT * logdet(mOmega) / iT
                 # @printf("Average log-likelihood value: %f\n", ll)
                 if abs(ll - ll0) < obj.llConvCrit
                 	@printf("Convergence in %d iterations.\n", j)
@@ -390,9 +390,9 @@ function estimate(obj::CivecmI2)
 end
 
 function ranktest(obj::CivecmI2)
-	ip = size(obj.endogenous, 2)
-	ll0 = logLik(setrank(obj, (ip, 0)))
-	tmpTrace = zeros(ip, ip + 1)
+	ip 			= size(obj.endogenous, 2)
+	ll0 		= logLik(setrank(obj, (ip, 0)))
+	tmpTrace 	= zeros(ip, ip + 1)
 	for i = 0:ip - 1
 		for j = 0:ip - i
 			tmpTrace[i + 1, i + j + 1] = 2 * (ll0 - logLik(setrank(obj, (i, j))))
@@ -402,8 +402,8 @@ function ranktest(obj::CivecmI2)
 end
 
 function ranktest(obj::CivecmI2, reps::Int64)
-	vals = ranktest(obj)
-	pvals = ranktestpvalues(obj, vals, reps)
+	vals 	= ranktest(obj)
+	pvals 	= ranktestpvalues(obj, vals, reps)
 	return (vals, pvals)
 end
 
@@ -424,7 +424,7 @@ function ranktestpvalues(obj::CivecmI2, testvalues::Matrix, reps::Int64)
 end
 
 function residuals(obj::CivecmI2)
-    res = obj.R0 - obj.R2 * obj.beta * obj.alpha' - obj.R1 * [obj.nu obj.gamma obj.beta] * [obj.alpha obj.xi obj.sigma]'
+    res = obj.R0 - obj.R2 * obj.beta * obj.alpha' - obj.R1 * [obj.nu obj.gamma obj.beta] * [obj.alpha obj.xi obj.sigma]'	#'
     return res
 end
 
@@ -437,30 +437,30 @@ function fS(dX::Matrix{Float64}, Y::Matrix{Float64}, dZ::Matrix{Float64})
 	A = dX[2:,:]::Matrix{Float64}
 	B = Y[1:size(Y, 1) - 1,:]::Matrix{Float64}
 	C = dZ[2:,:]::Matrix{Float64}
-	return (A'*B)*((B'*B)\(B'*C))
+	return (A'B)*((B'B)\(B'C))
 end
 
 function I2TraceSimulate(eps::Matrix{Float64}, s::Int64, exo::Matrix{Float64})	
-	iT = size(eps, 1)
-	w = cumsum2(eps) / sqrt(iT)
+	iT 	= size(eps, 1)
+	w 	= cumsum2(eps) / sqrt(iT)
 	w2i = cumsum2(w[:,s + 1:]) / iT
 
-	m1 = [w[:,1:s] w2i exo]
-	m2 = [w[:,s + 1:] diff([zeros(1,size(exo, 2));exo])]
+	m1 	= [w[:,1:s] w2i exo]
+	m2 	= [w[:,s + 1:] diff([zeros(1,size(exo, 2)); exo])]
 
 	if size(m2, 2) > 0
-		tmpCoef = (m2'*m2) \ (m2'*m1)
+		tmpCoef = (m2'm2) \ (m2'm1)
 		g = m1 - m2 * tmpCoef
 	else
 		g = m1
 	end
-	epsOrth = eps / chol(eps'eps / iT)
-	tmp1 = eigvals(fS(epsOrth, g, epsOrth) / iT)
+	epsOrth 	= eps / chol(eps'eps / iT)	#'
+	tmp1 		= eigvals(fS(epsOrth, g, epsOrth) / iT)
 	if size(eps, 2) > s
-		tmp2 = eigvals(fS(epsOrth[:,s + 1:], m2, epsOrth[:,s + 1:]) / iT)
+		tmp2 	= eigvals(fS(epsOrth[:,s + 1:], m2, epsOrth[:,s + 1:]) / iT)
 	else
-		tmp2 = [0.0]
+		tmp2 	= [0.0]
 	end
-	return (-iT * (sum(log(1.0 - tmp1)) + sum(log(1.0 - tmp2))))::Float64
+	return (-iT * (sum(log(1.0 - tmp1)) + sum(log(1.0 - tmp2))))
 end
 # end
