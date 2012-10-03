@@ -1,34 +1,12 @@
-load("sparse.jl")
+load("suitesparse.jl")
 
 # My 'fixes' to Julia code
-function svd{T<:Union(Float64,Float32,Complex128,Complex64)}(A::StridedMatrix{T}, vecs::Int64)
-	if vecs != 0
-		error("Not supported")
-	else
-		Lapack.gesdd!('S', copy(A))
-		# Lapack.gesvd!('S', 'S',copy(A))
-    end
-end
-
-function eig(A::Matrix, vecs::Bool)
-	if vecs
-		return eig(A)
-	else
-		if ishermitian(A) return Lapack.syev!('N','U',copy(A)) end
-                                        # Only compute right eigenvectors
-		if iscomplex(A) return Lapack.geev!('N','N',copy(A))[2:3] end
-		VL, WR, WI, VR = Lapack.geev!('N','N',copy(A))
-		if all(WI .== 0.) return WR end
-		return complex(WR, WI)
-	end
-end
-
 function gelsd!(A::StridedMatrix{Float64}, B::StridedVecOrMat{Float64})
     Lapack.chkstride1(A, B)
     m, n  = size(A)
-    if size(B,1) == n; throw(Lapack.LapackDimMisMatch("gelsd!")); end
+    # if size(B,1) == n; throw(Lapack.LapackDimMisMatch("gelsd!")); end
     s     = Array(Float64, min(m, n))
-    rcond = [-1.0]
+    rcond = eps(Float32)
     rnk   = Array(Int32, 1)
     info  = Array(Int32, 1)
     work  = Array(Float64, 1)
@@ -41,7 +19,7 @@ function gelsd!(A::StridedMatrix{Float64}, B::StridedVecOrMat{Float64})
                Ptr{Float64}, Ptr{Float64}, Ptr{Int32}, Ptr{Float64}, 
                Ptr{Int32}, Ptr{Int32}, Ptr{Int32}),
               &m, &n, &size(B,2), A, &max(1,stride(A,2)),
-              B, &max(1,stride(B,2)), s, rcond, rnk, work, &lwork, iwork, info)
+              B, &max(1,stride(B,2)), s, &rcond, rnk, work, &lwork, iwork, info)
         if info[1] != 0 throw(LapackException(info[1])) end
         if lwork < 0
             lwork = int32(real(work[1]))
@@ -52,6 +30,28 @@ function gelsd!(A::StridedMatrix{Float64}, B::StridedVecOrMat{Float64})
     B[1:n,:], rnk[1]
 end
 
+function cumsum2(A::Matrix{Float64})
+	m,n = size(A)
+	B = Array(Float64, m, n)
+	C = float64(1)
+	for i = 1:n
+		C = A[1,i]
+		for j = 1:m
+			B[j,i] = C
+			C += A[j,i]
+		end
+	end
+	return B
+end
+
+function cumsum3(A::Matrix{Float64})
+	m,n = size(A)
+	B = Array(Float64, m, n)
+	for i = 1:n
+		B[:,i] = cumsum(A[:,i])
+	end
+	return B
+end
 
 # Min Civecm kode
 
@@ -62,9 +62,9 @@ logLik(obj::Civecm) = -0.5 * (size(obj.endogenous, 1) - obj.lags) * logdet(resid
 function rrr(Y::Matrix{Float64}, X::Matrix{Float64})
 	(iT, iX) = size(X)
 	iY = size(Y, 2)
-	(Ux, Sx, Vx) = svd(X, 0)
-	Uy = svd(Y, 0)[1]
-	Uz, Sz = svd(Ux' * Uy, 0)[1:2]
+	(Ux, Sx, Vx) = svd(X, true)
+	Uy = svd(Y, true)[1]
+	Uz, Sz = svd(Ux' * Uy, true)[1:2]
 	values = Sz.^2
 	Sm1 = zeros(iX)
 	index = Sx .> 10e-9 * max(max(X))
@@ -89,7 +89,7 @@ function mreg(Y::VecOrMat, X::Matrix)
 	# 	residuals = Y - X*coef
 	# 	(coef, residuals)
 	# catch
-	# 	(mU, vS, mV) = svd(X, 0)
+	# 	(mU, vS, mV) = svd(X, true)
 	# 	vSinv = zeros(size(vS))
 	# 	vSinv[vS .> 0] = 1 ./ vS[vS .> 0]
 	# 	coef = mV * diagm(vSinv) * mU'Y
@@ -103,15 +103,17 @@ end
 
 logdet(matrix::Matrix) = 2 * sum(log(diag(chol(matrix))))
 
-function gls(Y::Matrix, X::Matrix, H::Matrix, K::Matrix, k::Vector, Omega::Matrix)
+function gls(Y::Matrix, X::Matrix, H::Matrix, K::SparseMatrixCSC, k::Vector, Omega::Matrix)
 	(iT, px) = size(X)
 	r = size(H, 2)
 	Sxx = X'X / iT
 	Sxy = X'Y / iT
-	if sum(size(k)) == 0
-	    k = zeros(px * r)
+	if length(k) == 0
+	    k = spzeros(px * r, 1)
+	    G = spzeros(px, r)
+	else
+		G = reshape(k, px, r)
 	end
-	G = reshape(k, px, r)
 	lhs = K'kron(H' / Omega * H, Sxx) * K
 	rhs = K'reshape(Sxy / Omega * H - Sxx * G * H' / Omega * H, px * r)
 	return reshape(K * (lhs \ rhs) + k, px, r)
@@ -150,23 +152,23 @@ end
 
 # I1
 type CivecmI1 <: Civecm
-	endogenous::Matrix
-	exogenous::Matrix
+	endogenous::Matrix{Float64}
+	exogenous::Matrix{Float64}
 	lags::Int64
-	alpha::Matrix
-	beta::Matrix
+	alpha::Matrix{Float64}
+	beta::Matrix{Float64}
 	llConvCrit::Float64
 	maxIter::Int64
-	Z0::Matrix
-	Z1::Matrix
-	Z2::Matrix
-	R0::Matrix
-	R1::Matrix
-	eigvals::Vector
-	eigvecs::Matrix
+	Z0::Matrix{Float64}
+	Z1::Matrix{Float64}
+	Z2::Matrix{Float64}
+	R0::Matrix{Float64}
+	R1::Matrix{Float64}
+	eigvals::Vector{Float64}
+	eigvecs::Matrix{Float64}
 end
 
-function CivecmI1(endogenous::Matrix, exogenous::Matrix, lags::Int64)
+function CivecmI1(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags::Int64)
 	mDX = diff(endogenous)
 	mLDX = lagmatrix(mDX, 1:lags - 1)
 	mDU = diff(exogenous)
@@ -189,7 +191,8 @@ function CivecmI1(endogenous::Matrix, exogenous::Matrix, lags::Int64)
 	return CivecmI1(endogenous, exogenous, 2, Array(Float64, size(endogenous, 2), size(endogenous, 2)), Array(Float64, size(endogenous, 2), size(endogenous, 2)), 1.0e-8, 5000, Z0, Z1, Z2, R0, R1, eigvals, eigvecs)
 end
 
-CivecmI1(endogenous::Matrix, lags::Int64) = CivecmI1(endogenous, zeros(size(endogenous, 1), 0), lags)
+CivecmI1(endogenous::Matrix{Float64}, lags::Int64) = CivecmI1(endogenous, zeros(size(endogenous, 1), 0), lags)
+CivecmI1(endogenous::Matrix{Float64}, exogenous::Range1, lags::Int64) = CivecmI1(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
 
 function setrank(obj::CivecmI1, rank::Int64)
 	return estimateEigen(obj, rank)
@@ -224,28 +227,28 @@ end
 # I2
 
 type CivecmI2 <: Civecm
-	endogenous::Matrix
-	exogenous::Matrix
+	endogenous::Matrix{Float64}
+	exogenous::Matrix{Float64}
 	lags::Int64
 	rank::(Int64,Int64)
-	alpha::Matrix
-	beta::Matrix
-	nu::Matrix
-	xi::Matrix
-	gamma::Matrix
-	sigma::Matrix
+	alpha::Matrix{Float64}
+	beta::Matrix{Float64}
+	nu::Matrix{Float64}
+	xi::Matrix{Float64}
+	gamma::Matrix{Float64}
+	sigma::Matrix{Float64}
 	llConvCrit::Float64
 	maxIter::Int64
-	Z0::Matrix
-	Z1::Matrix
-	Z2::Matrix
-	Z3::Matrix
-	R0::Matrix
-	R1::Matrix
-	R2::Matrix
+	Z0::Matrix{Float64}
+	Z1::Matrix{Float64}
+	Z2::Matrix{Float64}
+	Z3::Matrix{Float64}
+	R0::Matrix{Float64}
+	R1::Matrix{Float64}
+	R2::Matrix{Float64}
 end
 
-function CivecmI2(endogenous::Matrix, exogenous::Matrix, lags::Int64)
+function CivecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags::Int64)
 	mDX = diff(endogenous)
 	mDDX = diff(diff(endogenous))
 	mLDDX = lagmatrix(mDDX, 1:lags - 2)
@@ -270,10 +273,11 @@ function CivecmI2(endogenous::Matrix, exogenous::Matrix, lags::Int64)
 		R2 = Z2
 	end
 
-	return CivecmI2(endogenous, exogenous, lags, (size(endogenous, 2), 0), Array(Float64, size(endogenous, 2), size(endogenous, 2)), Array(Float64, size(endogenous, 2), size(endogenous, 2)), Array(Float64, size(endogenous, 2), size(endogenous, 2)), Array(Float64, size(endogenous, 2), size(endogenous, 2)), Array(Float64, size(endogenous, 2), size(endogenous, 2)), Array(Float64, size(endogenous, 2), size(endogenous, 2)), 1.0e-8, 5000, Z0, Z1, Z2, Z3, R0, R1, R2)
+	return CivecmI2(endogenous, float64(exogenous), lags, (size(endogenous, 2), 0), Array(Float64, size(endogenous, 2), size(endogenous, 2)), Array(Float64, size(endogenous, 2), size(endogenous, 2)), Array(Float64, size(endogenous, 2), size(endogenous, 2)), Array(Float64, size(endogenous, 2), size(endogenous, 2)), Array(Float64, size(endogenous, 2), size(endogenous, 2)), Array(Float64, size(endogenous, 2), size(endogenous, 2)), 1.0e-8, 50000, Z0, Z1, Z2, Z3, R0, R1, R2)
 end
 
-CivecmI2(endogenous::Matrix, lags::Int64) = CivecmI2(endogenous, zeros(size(endogenous, 1), 0), lags)
+CivecmI2(endogenous::Matrix{Float64}, lags::Int64) = CivecmI2(endogenous, zeros(size(endogenous, 1), 0), lags)
+CivecmI2(endogenous::Matrix{Float64}, exogenous::Range1, lags::Int64) = CivecmI2(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
 
 function setrank(obj::CivecmI2, rank::(Int64, Int64))
 	if sum(rank) > size(obj.endogenous, 2)
@@ -295,61 +299,82 @@ function estimate(obj::CivecmI2)
 		obj.xi = zeros(ip, obj.rank[2])
 		obj.gamma = zeros(ip1, obj.rank[2])
 		obj.sigma = zeros(ip, obj.rank[1])
+	elseif obj.rank[1] == ip
+		tmpFit = setrank(CivecmI1(obj.endogenous, obj.exogenous, obj.lags), obj.rank[1])
+		obj.alpha = copy(tmpFit.alpha)
+		obj.beta = copy(tmpFit.beta)
+		obj.sigma = eye(ip, obj.rank[1])
+		tmpFit2 = [obj.R1 obj.R2 * obj.beta] \ obj.R0
+		tmpGam = copy(tmpFit2[1:ip1,:])'
+		obj.nu = (obj.alpha \ (tmpGam - obj.sigma * obj.beta'))'
+		obj.xi = zeros(ip, 0)
+		obj.gamma = zeros(ip1, 0)
 	else
-
-		# FixMe! Should be speye when sparse matrices are better supported
-		tmp1 = eye(2 * obj.rank[1] + obj.rank[2] + 1, 2 * obj.rank[1] + obj.rank[2])
+		tmp1 = speye(2 * obj.rank[1] + obj.rank[2] + 1, 2 * obj.rank[1] + obj.rank[2])
 		tmp2 = copy(tmp1[[reshape(reshape(1:2 * obj.rank[1], obj.rank[1], 2)', 2 * obj.rank[1]), reshape([(2 * obj.rank[1] + obj.rank[2] + 1) * ones(Int, obj.rank[2]) (1:obj.rank[2]) + 2 * obj.rank[1]]', 2 * obj.rank[2]), reshape([(2 * obj.rank[1] + obj.rank[2] + 1) * ones(Int, obj.rank[1]) 1:obj.rank[1]]', 2 * obj.rank[1])], :])
-		K = kron(tmp2, eye(size(obj.R1, 2)))
+		K = kron(tmp2, speye(size(obj.R1, 2)))
 	    
 		for k = 1:20
-			obj.alpha = randn(ip, obj.rank[1])
-			obj.beta = randn(ip1, obj.rank[1])
-			obj.nu = randn(ip1, obj.rank[1])            
-			obj.xi = randn(ip, obj.rank[2])
-			obj.gamma = randn(ip1, obj.rank[2])
-			obj.sigma = randn(ip, obj.rank[1])
-			mOmega = residualvariance(obj)
-	
 			# Iterative procedure
 			# Initialisation
 			if obj.rank[1] == 0
-				obj.gamma = rrr(obj.R0, obj.R1, obj.rank[2])[2]
-				obj.xi = mreg(obj.R0, obj.R1 * obj.gamma)[1]'
-			elseif ip == sum(obj.rank)
-				tmpFit = setrank(CivecmI1(obj.endogenous, obj.exogenous, obj.lags), obj.rank[1])
-				obj.alpha = copy(tmpFit.alpha)
-				obj.beta = copy(tmpFit.beta)
-				tmpFit2 = mreg(obj.R0, [obj.R1 obj.R2 * obj.beta])[1]
-				tmpGam = copy(tmpFit2[1:ip1,:])'
-				obj.sigma = eye(ip, obj.rank[1])
-				obj.nu = (obj.alpha \ (tmpGam - obj.sigma * obj.beta'))'
+				obj.alpha 	= zeros(ip, 0)
+				obj.beta 	= zeros(ip1, 0)
+				obj.nu 		= zeros(ip1, 0)
+				obj.gamma 	= rrr(obj.R0, obj.R1, obj.rank[2])[2]
+				obj.xi 		= ((obj.R1 * obj.gamma) \ obj.R0)' #'
+				obj.sigma 	= zeros(ip, 0)
+				mOmega = residualvariance(obj)
 			else
+			#if ip == sum(obj.rank)
+				if k == 1
+					tmpFit = setrank(CivecmI1(obj.endogenous, obj.exogenous, obj.lags), obj.rank[1])
+					obj.alpha 	= copy(tmpFit.alpha)
+					obj.beta 	= copy(tmpFit.beta)
+					# tmpFit2 	= mreg(obj.R0, [obj.R1 obj.R2 * obj.beta])[1]
+					# tmpGam 		= copy(tmpFit2[1:ip1,:])'
+					obj.gamma 	= randn(ip1, obj.rank[2])
+					# obj.sigma 	= eye(ip, obj.rank[1])
+					obj.sigma	= randn(ip, obj.rank[1])
+					obj.nu		= randn(ip1, obj.rank[1])
+					# obj.nu 		= (obj.alpha \ (tmpGam - obj.sigma * obj.beta'))'
+					obj.xi 		= randn(ip, obj.rank[2])
+					mOmega 		= residualvariance(obj)
+				else
+					obj.beta = randn(ip1, obj.rank[1])
+					obj.nu = randn(ip1, obj.rank[1])            
+					obj.gamma = randn(ip1, obj.rank[2])
+					mOmega = residualvariance(obj)
+				end
+			end
+			# else
 				# m = min(obj.rank[1], ip - sum(obj.rank));
 			 	# tmpFit = CivecmI2alt(obj.endogenous, obj.exogenous, obj.lags).setrank([obj.rank[1] - m, obj.rank[2] + 2 * m]);
 				# [obj.alpha, obj.beta, obj.nu, obj.xi, obj.gamma, obj.sigma] = CivecmI2alt.initialPars(tmpFit.alpha, tmpFit.beta, tmpFit.nu, tmpFit.xi, tmpFit.gamma, tmpFit.sigma, 1, m)
-			end
+			
 
 			ll = -1.0e9
 			ll0 = ll
 			for j = 0:obj.maxIter
 				# The AC-step
 				# println(obj.beta)
-				tmpCoef = mreg(obj.R0, [obj.R2 * obj.beta + obj.R1 * obj.nu obj.R1 * obj.gamma obj.R1 * obj.beta])[1]
+				tmpX = [obj.R2 * obj.beta + obj.R1 * obj.nu obj.R1 * obj.gamma obj.R1 * obj.beta]
+				tmpCoef = gelsd!(copy(tmpX'*tmpX), copy(tmpX'*obj.R0))[1]
 				obj.alpha = copy(tmpCoef[1:obj.rank[1], :]')
 				obj.xi = copy(tmpCoef[obj.rank[1] + 1:sum(obj.rank),:]')
 				obj.sigma = copy(tmpCoef[sum(obj.rank) + 1:end, :]')
 				# The CC Step ala Rocco
-				tmpCoef = gls(obj.R0, [obj.R2 obj.R1], [obj.alpha obj.xi obj.sigma], K, zeros(size(K, 1)), mOmega)
+				tmpCoef = gls(obj.R0, [obj.R2 obj.R1], [obj.alpha obj.xi obj.sigma], K, [], mOmega)
 				obj.nu = copy(tmpCoef[ip1 + 1:, 1:obj.rank[1]])
 				obj.gamma = copy(tmpCoef[ip1 + 1:, obj.rank[1] + 1:sum(obj.rank)])
 				obj.beta = copy(tmpCoef[ip1 + 1:, sum(obj.rank) + 1:])
                 # Residual variable step
                 ll0 = ll
                 mOmega = residualvariance(obj)
-                ll = -0.5 * iT * logdet(mOmega)
+                ll = -0.5 * iT * logdet(mOmega) / iT
+                # @printf("Average log-likelihood value: %f\n", ll)
                 if abs(ll - ll0) < obj.llConvCrit
-                	print("Convergence in ", j, " iterations.\n")
+                	@printf("Convergence in %d iterations.\n", j)
                 	break
                 end
             end
@@ -392,7 +417,7 @@ function ranktestpvalues(obj::CivecmI2, testvalues::Matrix, reps::Int64)
 				rankdist[k] = I2TraceSimulate(randn(iT, ip - i), j, obj.exogenous)
 			end
 			pvals[i + 1, i + j + 1] = mean(rankdist .> testvalues[i + 1, i + j + 1])
-			println("Simulation of model H(", i, ",", j, "). ", 100 * (0.5 * i * (i + 1) + i * (ip - i + 1) + j + 1) / (0.5 * ip^2 + 1.5 * ip), " percent completed")
+			@printf("Simulation of model H(%d,%d). %3.2f percent completed.\n", i, j, 100 * (0.5 * i * (i + 1) + i * (ip - i + 1) + j + 1) / (0.5 * ip^2 + 1.5 * ip))
 		end
 	end
 	return pvals
@@ -406,36 +431,36 @@ end
 function residualvariance(obj::CivecmI1)
 	return "Hej"
 end
-
+# @profile begin
 # Simulation of rank test
-
 function fS(dX::Matrix{Float64}, Y::Matrix{Float64}, dZ::Matrix{Float64})
 	A = dX[2:,:]::Matrix{Float64}
 	B = Y[1:size(Y, 1) - 1,:]::Matrix{Float64}
 	C = dZ[2:,:]::Matrix{Float64}
-	return (A'B)*((B'B)\(B'C))
+	return (A'*B)*((B'*B)\(B'*C))
 end
 
 function I2TraceSimulate(eps::Matrix{Float64}, s::Int64, exo::Matrix{Float64})	
 	iT = size(eps, 1)
-	w = cumsum(eps) / sqrt(iT)
-	w2i = cumsum(w[:,s + 1:]) / iT
+	w = cumsum2(eps) / sqrt(iT)
+	w2i = cumsum2(w[:,s + 1:]) / iT
 
 	m1 = [w[:,1:s] w2i exo]
 	m2 = [w[:,s + 1:] diff([zeros(1,size(exo, 2));exo])]
 
 	if size(m2, 2) > 0
-		tmpCoef = m2 \ m1
+		tmpCoef = (m2'*m2) \ (m2'*m1)
 		g = m1 - m2 * tmpCoef
 	else
 		g = m1
 	end
 	epsOrth = eps / chol(eps'eps / iT)
-	tmp1 = eig(fS(epsOrth, g, epsOrth) / iT, false)
+	tmp1 = eigvals(fS(epsOrth, g, epsOrth) / iT)
 	if size(eps, 2) > s
-		tmp2 = eig(fS(epsOrth[:,s + 1:], m2, epsOrth[:,s + 1:]) / iT, false)
+		tmp2 = eigvals(fS(epsOrth[:,s + 1:], m2, epsOrth[:,s + 1:]) / iT)
 	else
 		tmp2 = [0.0]
 	end
 	return (-iT * (sum(log(1.0 - tmp1)) + sum(log(1.0 - tmp2))))::Float64
 end
+# end
