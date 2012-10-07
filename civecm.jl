@@ -33,12 +33,10 @@ end
 function cumsum2(A::Matrix{Float64})
 	m,n = size(A)
 	B = Array(Float64, m, n)
-	C = float64(1)
 	for i = 1:n
-		C = A[1,i]
-		for j = 1:m
-			B[j,i] = C
-			C += A[j,i]
+		B[1,i] = A[1,i]
+		for j = 2:m
+			B[j,i] = B[j-1,i] + A[j,i]
 		end
 	end
 	return B
