@@ -1,56 +1,5 @@
 load("suitesparse.jl")
 
-# My 'fixes' to Julia code
-function gelsd!(A::StridedMatrix{Float64}, B::StridedVecOrMat{Float64})
-    Lapack.chkstride1(A, B)
-    m, n  = size(A)
-    # if size(B,1) == n; throw(Lapack.LapackDimMisMatch("gelsd!")); end
-    s     = Array(Float64, min(m, n))
-    rcond = eps(Float32)
-    rnk   = Array(Int32, 1)
-    info  = Array(Int32, 1)
-    work  = Array(Float64, 1)
-    lwork = int32(-1)
-    iwork = Array(Int32, 1)
-    for i in 1:2
-        ccall(dlsym(Base.liblapack, "dgelsd_"), Void,
-              (Ptr{Int32}, Ptr{Int32}, Ptr{Int32},
-               Ptr{Float64}, Ptr{Int32}, Ptr{Float64}, Ptr{Int32},
-               Ptr{Float64}, Ptr{Float64}, Ptr{Int32}, Ptr{Float64}, 
-               Ptr{Int32}, Ptr{Int32}, Ptr{Int32}),
-              &m, &n, &size(B,2), A, &max(1,stride(A,2)),
-              B, &max(1,stride(B,2)), s, &rcond, rnk, work, &lwork, iwork, info)
-        if info[1] != 0 throw(LapackException(info[1])) end
-        if lwork < 0
-            lwork = int32(real(work[1]))
-            work = Array(Float64, lwork)
-            iwork = Array(Int32, iwork[1])
-        end
-    end
-    B[1:n,:], rnk[1]
-end
-
-function cumsum2(A::Matrix{Float64})
-	m,n = size(A)
-	B = Array(Float64, m, n)
-	for i = 1:n
-		B[1,i] = A[1,i]
-		for j = 2:m
-			B[j,i] = B[j-1,i] + A[j,i]
-		end
-	end
-	return B
-end
-
-function cumsum3(A::Matrix{Float64})
-	m,n = size(A)
-	B = Array(Float64, m, n)
-	for i = 1:n
-		B[:,i] = cumsum(A[:,i])
-	end
-	return B
-end
-
 # Min Civecm kode
 
 abstract Civecm
@@ -94,7 +43,7 @@ function mreg(Y::VecOrMat, X::Matrix)
 	# 	residuals = Y - X*coef
 	# 	(coef, residuals)		
 	# end
-	coef = gelsd!(copy(X), copy(Y))[1]
+	coef = Lapack.gelsd!(X'X, X'Y)[1]
 	residuals = Y - X*coef
 	(coef, residuals)
 end
@@ -357,7 +306,7 @@ function estimate(obj::CivecmI2)
 				# The AC-step
 				# println(obj.beta)
 				tmpX 		= [obj.R2 * obj.beta + obj.R1 * obj.nu obj.R1 * obj.gamma obj.R1 * obj.beta]
-				tmpCoef 	= gelsd!(copy(tmpX'tmpX), copy(tmpX'obj.R0))[1]
+				tmpCoef 	= (tmpX'tmpX) \ (tmpX'obj.R0)
 				obj.alpha 	= copy(tmpCoef[1:obj.rank[1], :]') 					#'
 				obj.xi 		= copy(tmpCoef[obj.rank[1] + 1:sum(obj.rank),:]') 	#'
 				obj.sigma 	= copy(tmpCoef[sum(obj.rank) + 1:end, :]') 			#'
@@ -440,8 +389,8 @@ end
 
 function I2TraceSimulate(eps::Matrix{Float64}, s::Int64, exo::Matrix{Float64})	
 	iT 	= size(eps, 1)
-	w 	= cumsum2(eps) / sqrt(iT)
-	w2i = cumsum2(w[:,s + 1:]) / iT
+	w 	= cumsum(eps) / sqrt(iT)
+	w2i = cumsum(w[:,s + 1:]) / iT
 
 	m1 	= [w[:,1:s] w2i exo]
 	m2 	= [w[:,s + 1:] diff([zeros(1,size(exo, 2)); exo])]
