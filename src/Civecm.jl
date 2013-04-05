@@ -1,22 +1,22 @@
-using SuiteSparse
+# using SuiteSparse
 
 # Min Civecm kode
+module Civecm
+abstract AbstractCivecm
 
-abstract Civecm
+logLik(obj::AbstractCivecm) = -0.5 * (size(obj.endogenous, 1) - obj.lags) * logdet(residualvariance(obj))
 
-logLik(obj::Civecm) = -0.5 * (size(obj.endogenous, 1) - obj.lags) * logdet(residualvariance(obj))
-
-function rrr(Y::Matrix{Float64}, X::Matrix{Float64})
-	(iT, iX) = size(X)
+function rrr(Y::Matrix, X::Matrix)
+	iT, iX = size(X)
 	iY = size(Y, 2)
-	(Ux, Sx, Vx) = svd(X, true)
-	Uy = svd(Y, true)[1]
-	Uz, Sz = svd(Ux'Uy, true)[1:2]
-	values = Sz.^2
+	svdX = svdfact(X, true)
+	svdY = svdfact(Y, true)
+	svdZ = svdfact(svdX[:U]'svdY[:U], true) #'
+	values = svdZ[:S].^2
 	Sm1 = zeros(iX)
-	index = Sx .> 10e-9 * max(max(X))
-	Sm1[index] = 1 ./ Sx[index]
-	vectors = sqrt(iT) * Vx'diagmm(Sm1, Uz)
+	index = svdX[:S] .> 10e-9 * max(max(X))
+	Sm1[index] = 1 ./ svdX[:S][index]
+	vectors = sqrt(iT) * svdX[:Vt] * diagmm(Sm1, svdZ[:U])
 	return (values, vectors)
 end
 
@@ -25,9 +25,9 @@ function rrr(Y::Matrix, X::Matrix, rank::Int64)
 	return (tmp1[1:rank], tmp2[:,1:rank])
 end
 
-function bar(matrix::Matrix)
-	(Q, R) = qr(matrix)
-	return Q / R'
+function bar(A::Matrix)
+	qrA = qr(A)
+	return full(qrA[:Q]) / qrA[:R]'#'
 end
 
 function mreg(Y::VecOrMat, X::Matrix)
@@ -43,7 +43,7 @@ function mreg(Y::VecOrMat, X::Matrix)
 	# 	residuals = Y - X*coef
 	# 	(coef, residuals)		
 	# end
-	coef = LAPACK.gelsd!(X'X, X'Y)[1]
+	coef = LinAlg.LAPACK.gelsd!(X'X, X'Y)[1]
 	residuals = Y - X*coef
 	(coef, residuals)
 end
@@ -68,6 +68,7 @@ end
 
 function lagmatrix(A::Matrix, lags::AbstractArray{Int64, 1})
 	(iT, ip) = size(A)
+	if isempty(lags) return Array(Float64, iT, 0) end
 	ans = Array(Float64, iT - max(lags), ip * size(lags, 1))
 	for i in 1:ip
 		for j in 1:size(lags, 1)
@@ -79,7 +80,7 @@ function lagmatrix(A::Matrix, lags::AbstractArray{Int64, 1})
 	return ans
 end
 
-function residualvariance(obj::Civecm)
+function residualvariance(obj::AbstractCivecm)
     mresiduals = residuals(obj)
     mOmega = mresiduals'mresiduals / size(mresiduals, 1)
     return mOmega
@@ -96,10 +97,10 @@ function lagmatrixOld(A::Matrix, lags::AbstractArray{Int64, 1})
 	return ans
 end
 	
-show(io, obj::Civecm) = println("alpha: ", alpha(obj), "\nlogLik: ", logLik(obj))
+show(io, obj::AbstractCivecm) = println("alpha: ", alpha(obj), "\nlogLik: ", logLik(obj))
 
 # I1
-type CivecmI1 <: Civecm
+type CivecmI1 <: AbstractCivecm
 	endogenous::Matrix{Float64}
 	exogenous::Matrix{Float64}
 	lags::Int64
@@ -176,7 +177,7 @@ residuals(obj::CivecmI1) = obj.R0 - obj.R1*obj.beta*obj.alpha'
 
 # I2
 
-type CivecmI2 <: Civecm
+type CivecmI2 <: AbstractCivecm
 	endogenous::Matrix{Float64}
 	exogenous::Matrix{Float64}
 	lags::Int64
@@ -410,7 +411,7 @@ function I2TraceSimulate(eps::Matrix{Float64}, s::Int64, exo::Matrix{Float64})
 	return (-iT * (sum(log(1.0 - tmp1)) + sum(log(1.0 - tmp2))))
 end
 
-type CivecmI2Givens <: Civecm
+type CivecmI2Givens <: AbstractCivecm
 	endogenous::Matrix{Float64}
 	exogenous::Matrix{Float64}
 	lags::Int64
@@ -604,9 +605,4 @@ function logLik(obj::CivecmI2Givens, pars)
 	#println(Sigma_alpha_beta(obj)[1,1], "\t", ll)
 	return ll
 end
-
-# Mine generelle funktioner, som måske skal kommittes
-function sqrtm(A::StridedMatrix)
-	U,S,V = svd(chol(A))
-	return V'diagmm(S,V)
 end
