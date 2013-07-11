@@ -1,7 +1,10 @@
-# using SuiteSparse
-
 # Min Civecm kode
 module Civecm
+
+import Base.show
+
+export civecmI1, civecmI2, civecmI2alt, show, ranktest, setrank
+
 abstract AbstractCivecm
 
 logLik(obj::AbstractCivecm) = -0.5 * (size(obj.endogenous, 1) - obj.lags) * logdet(residualvariance(obj))
@@ -11,12 +14,12 @@ function rrr(Y::Matrix, X::Matrix)
 	iY = size(Y, 2)
 	svdX = svdfact(X, true)
 	svdY = svdfact(Y, true)
-	svdZ = svdfact(svdX[:U]'svdY[:U], true) #'
+	svdZ = svdfact(svdX[:U]'svdY[:U], true)
 	values = svdZ[:S].^2
 	Sm1 = zeros(iX)
 	index = svdX[:S] .> 10e-9 * max(max(X))
 	Sm1[index] = 1 ./ svdX[:S][index]
-	vectors = sqrt(iT) * svdX[:Vt] * diagmm(Sm1, svdZ[:U])
+	vectors = sqrt(iT) * svdX[:V] * scale(Sm1, svdZ[:U])
 	return (values, vectors)
 end
 
@@ -27,7 +30,7 @@ end
 
 function bar(A::Matrix)
 	qrA = qr(A)
-	return full(qrA[:Q]) / qrA[:R]'#'
+	return full(qrA[:Q]) / qrA[:R]'
 end
 
 function mreg(Y::VecOrMat, X::Matrix)
@@ -97,7 +100,7 @@ function lagmatrixOld(A::Matrix, lags::AbstractArray{Int64, 1})
 	return ans
 end
 	
-show(io, obj::AbstractCivecm) = println("alpha: ", alpha(obj), "\nlogLik: ", logLik(obj))
+# show(io, obj::AbstractCivecm) = println("alpha: ", alpha(obj), "\nlogLik: ", logLik(obj))
 
 # I1
 type CivecmI1 <: AbstractCivecm
@@ -117,7 +120,7 @@ type CivecmI1 <: AbstractCivecm
 	eigvecs::Matrix{Float64}
 end
 
-function CivecmI1(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags::Int64)
+function civecmI1(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags::Int64)
 	mDX = diff(endogenous)
 	mLDX = lagmatrix(mDX, 1:lags - 1)
 	mDU = diff(exogenous)
@@ -137,11 +140,41 @@ function CivecmI1(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 	end
 	(eigvals, eigvecs) = rrr(R0, R1)
 
-	return CivecmI1(endogenous, exogenous, 2, Array(Float64, size(endogenous, 2), size(endogenous, 2)), Array(Float64, size(endogenous, 2), size(endogenous, 2)), 1.0e-8, 5000, Z0, Z1, Z2, R0, R1, eigvals, eigvecs)
+	retobj = CivecmI1(endogenous, exogenous, 2, Array(Float64, size(endogenous, 2), size(endogenous, 2)), Array(Float64, size(endogenous, 2), size(endogenous, 2)), 1.0e-8, 5000, Z0, Z1, Z2, R0, R1, eigvals, eigvecs)
+	setrank(retobj, size(Z0, 2))
+	return retobj
 end
+civecmI1(endogenous::Matrix{Float64}, lags::Int64) = civecmI1(endogenous, zeros(size(endogenous, 1), 0), lags)
+civecmI1(endogenous::Matrix{Float64}, exogenous::Range1, lags::Int64) = civecmI1(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
 
-CivecmI1(endogenous::Matrix{Float64}, lags::Int64) = CivecmI1(endogenous, zeros(size(endogenous, 1), 0), lags)
-CivecmI1(endogenous::Matrix{Float64}, exogenous::Range1, lags::Int64) = CivecmI1(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
+function show(io::IO, obj::CivecmI1)
+	@printf("\n   ")
+	for i = 1:size(obj.alpha, 2)
+		@printf(" alpha(%d)", i)
+	end
+	println()	
+	for i = 1:size(obj.R0, 2)
+		@printf("V%d:", i)
+		for j = 1:size(obj.alpha, 2)
+			@printf("%9.3f", obj.alpha[i,j])
+		end
+		println()
+	end
+	@printf("\n         ")
+	for i = 1:size(obj.R1, 2)
+		@printf("%9s", string("V", i))
+	end
+	println()
+	for i = 1:size(obj.beta, 2)
+		@printf("beta(%d): ", i)
+		for j = 1: 1:size(obj.R1, 2)
+			@printf("%9.3f", obj.beta[j,i])
+		end
+		println()
+	end
+	println("\nPi:")
+	print_matrix(OUTPUT_STREAM, obj.alpha*obj.beta')
+end
 
 function setrank(obj::CivecmI1, rank::Int64)
 	return estimateEigen(obj, rank)
@@ -154,24 +187,34 @@ function estimateEigen(obj::CivecmI1, rank::Int64)
 	return obj
 end
 
-function ranktest(obj::CivecmI1)
-	return -size(obj.Z0, 1) * reverse(cumsum(reverse(log(1.0 - obj.eigvals))))
+type TraceTest
+	values::Vector{Float64}
+	pvalues::Vector{Float64}
+end
+
+function show(io::IO, obj::TraceTest)
+	@printf("\n Rank    Value  p-value\n")
+	for i = 1:length(obj.values)
+		@printf("%5d%9.3f%9.3f\n", i-1, obj.values[i], obj.pvalues[i])
+	end
 end
 
 function ranktest(obj::CivecmI1, reps::Int64)
-	tmpTrace = ranktest(obj)
+	tmpTrace = -size(obj.Z0, 1) * reverse(cumsum(reverse(log(1.0 - obj.eigvals))))
 	tmpPVals = zeros(size(tmpTrace))
 	rankdist = zeros(reps)
 	(iT, ip) = size(obj.endogenous)
 	for i = 1:size(tmpTrace, 1)
+		print("Simulation of model H(", i, ")\r")
 		for k = 1:reps
 			rankdist[k] = I2TraceSimulate(randn(iT, ip - i + 1), ip - i + 1, obj.exogenous)
 		end
 		tmpPVals[i] = mean(rankdist .> tmpTrace[i])
-		println("Simulation of model H(", i, "). ", 100 * i / size(tmpTrace, 1), " percent completed")
 	end
-	return (tmpTrace, tmpPVals)
+	print("                                                    \r")
+	return TraceTest(tmpTrace, tmpPVals)
 end
+ranktest(obj::CivecmI1) = ranktest(obj, 10000)
 
 residuals(obj::CivecmI1) = obj.R0 - obj.R1*obj.beta*obj.alpha'
 
@@ -199,7 +242,7 @@ type CivecmI2 <: AbstractCivecm
 	R2::Matrix{Float64}
 end
 
-function CivecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags::Int64)
+function civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags::Int64)
 	mDX = diff(endogenous)
 	mDDX = diff(diff(endogenous))
 	mLDDX = lagmatrix(mDDX, 1:lags - 2)
@@ -227,8 +270,8 @@ function CivecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 	return CivecmI2(endogenous, float64(exogenous), lags, (size(endogenous, 2), 0), Array(Float64, size(endogenous, 2), size(endogenous, 2)), Array(Float64, size(endogenous, 2), size(endogenous, 2)), Array(Float64, size(endogenous, 2), size(endogenous, 2)), Array(Float64, size(endogenous, 2), size(endogenous, 2)), Array(Float64, size(endogenous, 2), size(endogenous, 2)), Array(Float64, size(endogenous, 2), size(endogenous, 2)), 1.0e-8, 50000, Z0, Z1, Z2, Z3, R0, R1, R2)
 end
 
-CivecmI2(endogenous::Matrix{Float64}, lags::Int64) = CivecmI2(endogenous, zeros(size(endogenous, 1), 0), lags)
-CivecmI2(endogenous::Matrix{Float64}, exogenous::Range1, lags::Int64) = CivecmI2(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
+civecmI2(endogenous::Matrix{Float64}, lags::Int64) = civecmI2(endogenous, zeros(size(endogenous, 1), 0), lags)
+civecmI2(endogenous::Matrix{Float64}, exogenous::Range1, lags::Int64) = civecmI2(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
 
 function setrank(obj::CivecmI2, rank::(Int64, Int64))
 	if sum(rank) > size(obj.endogenous, 2)
@@ -353,8 +396,8 @@ function ranktest(obj::CivecmI2)
 end
 
 function ranktest(obj::CivecmI2, reps::Int64)
-	vals 	= ranktest(obj)
-	pvals 	= ranktestpvalues(obj, vals, reps)
+	vals 	= rank(obj)
+	pvals 	= rankpvalues(obj, vals, reps)
 	return (vals, pvals)
 end
 
@@ -428,7 +471,7 @@ type CivecmI2Givens <: AbstractCivecm
 	R2::Matrix{Float64}
 end
 
-function CivecmI2Givens(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags::Int64)
+function civecmI2Givens(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags::Int64)
 	mDX = diff(endogenous)
 	mDDX = diff(diff(endogenous))
 	mLDDX = lagmatrix(mDDX, 1:lags - 2)
@@ -455,9 +498,8 @@ function CivecmI2Givens(endogenous::Matrix{Float64}, exogenous::Matrix{Float64},
 
 	return CivecmI2Givens(endogenous, float64(exogenous), lags, (size(endogenous, 2), 0), Array(Float64, npars(size(R1, 2), size(R0, 2), size(R0, 2), 0)), 1.0e-8, 50000, Z0, Z1, Z2, Z3, R0, R1, R2)
 end
-
-CivecmI2Givens(endogenous::Matrix{Float64}, lags::Int64) = CivecmI2Givens(endogenous, zeros(size(endogenous, 1), 0), lags)
-CivecmI2Givens(endogenous::Matrix{Float64}, exogenous::Range1, lags::Int64) = CivecmI2Givens(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
+civecmI2Givens(endogenous::Matrix{Float64}, lags::Int64) = civecmI2Givens(endogenous, zeros(size(endogenous, 1), 0), lags)
+civecmI2Givens(endogenous::Matrix{Float64}, exogenous::Range1, lags::Int64) = civecmI2Givens(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
 
 function npars(p1::Integer,p::Integer,r::Integer,s::Integer)
 	n = div(p*(p - 1),2) - div((p - r)*(p - r - 1),2) +
