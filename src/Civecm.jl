@@ -1,8 +1,8 @@
-using Distributions
+# using Distributions
 # Min Civecm kode
 module Civecm
 
-import Base: convert, copy, eigvals, show
+import Base: convert, copy, eigvals, show, LinAlg.syrk_wrapper
 import Distributions: loglikelihood
 # import Profile.@iprofile
 export civecmI1, civecmI2, civecmI2alt, loglikelihood, lrtest, ranktest, setrank, show, simulate, VAR
@@ -407,7 +407,7 @@ function civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 					Array(Float64, p1, rankI2),
 					Array(Float64, p, rankI1),
 					1.0e-8, 
-					50000, 
+					5000, 
 					"Johansen",
 					Array(Float64, iT, p), 
 					Array(Float64, iT, p1),
@@ -687,14 +687,9 @@ function estimateτSwitch(obj::CivecmI2)
 		C[:] = ζtαort*(cholfact!(αort'Ω*αort)\(ζtαort'))
 		D[:] = S11
 		E[:] = S20*(Ω\obj.α)*ρ' - S21*(τort*δ*obj.α' + τ*ζt)*(Ω\obj.α)*ρ' + S10*αort*(cholfact(	αort'Ω*αort)\(ζtαort'))
-		τ[:] = reshape(qrpfact!(kron(A,B) + kron(C,D))\E, rs, p1)
-		tmp = sqrtm(Hermitian(τ'S22*τ))
-		if !isreal(tmp) 
-			tmp1 = sqrtm(Hermitian(LinAlg.syrk_wrapper('T', cholfact(S22, :U)[:U]*τ)))
-			println(tmp) 
-			println(tmp1)
-		end
-		τ[:] = τ/sqrtm(Hermitian(τ'S22*τ))
+		τ[:] = qrpfact!(kron(A,B) + kron(C,D))\E
+		τ[:] = full(qrfact!(τ)[:Q])
+		τ[:] = τ/sqrtm(Hermitian(τ'S11*τ))
 	end
 	# Back to Mosconi/Paruolo pars
 	obj.β[:] = τ*ρ
