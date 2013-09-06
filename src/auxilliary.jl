@@ -1,7 +1,8 @@
-function bar(A::Matrix)
-	qrA = qr(A)
+function bar!(A::Matrix)
+	qrA = qrfact!(A)
 	return full(qrA[:Q]) / qrA[:R]'
 end
+bar(A::Matrix) = bar!(copy(A))
 
 function gls(Y::Matrix, X::Matrix, H::Matrix, K::SparseMatrixCSC, k::Vector, Omega::Matrix)
 	iT, px = size(X)
@@ -43,11 +44,12 @@ end
 function rrr!(Y::Matrix, X::Matrix)
 	iT, iX = size(X)
 	iY = size(Y, 2)
+	if iX == 0 return zeros(iY,0), zeros(0), zeros(iX, 0) end
 	svdX = svdfact!(X, true)
 	svdY = svdfact!(Y, true)
 	svdZ = svdfact!(svdX[:U]'svdY[:U], true)
 	Sm1 = zeros(iX)
-	index = svdX[:S] .> 10e-9 * max(max(X))
+	index = svdX[:S] .> 10e-9*max(X)
 	Sm1[index] = 1 ./ svdX[:S][index]
 	α = svdY[:V]*Diagonal(svdY[:S])*svdZ[:V]/sqrt(iT)
 	β = sqrt(iT)*svdX[:V]*Diagonal(Sm1)*svdZ[:U]
