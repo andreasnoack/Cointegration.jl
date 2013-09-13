@@ -4,6 +4,8 @@ eigvals(obj::AbstractCivecm) = eigvals(convert(VAR, obj))
 
 loglikelihood(obj::AbstractCivecm) = -0.5 * (size(obj.endogenous, 1) - obj.lags) * logdet(residualvariance(obj))
 
+# aic(obj::Civecm) = 2*(npars(obj) - loglikelihood(obj))
+
 function residualvariance(obj::AbstractCivecm)
     mresiduals = residuals(obj)
     mOmega = mresiduals'mresiduals / size(mresiduals, 1)

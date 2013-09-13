@@ -10,8 +10,8 @@ export β, τ, ρ, δ, civecmI1, civecmI2, civecmI2alt, loglikelihood, lrtest, r
 include("auxilliary.jl")
 include("abstract.jl")
 include("I1.jl")
-include("VAR.jl")
 include("I2ParuoloRahbek.jl")
+include("VAR.jl")
 # include("I2MosconiParuolo.jl")
 # include("I2Givens.jl")
 

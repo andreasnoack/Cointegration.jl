@@ -42,3 +42,23 @@ function convert(::Type{VAR}, obj::CivecmI1)
 	end
 	return VAR(obj.endogenous, obj.exogenous, endocoefs, zeros(0,0))
 end
+
+function convert(::Type{VAR}, obj::CivecmI2)
+	p = size(obj.endogenous, 2)
+	endocoefs = Array(Float64, p, p, obj.lags)
+	endocoefs[:,:,1] = 2eye(p) + (obj.α*ρ(obj)'*τ(obj)' + obj.α*δ(obj)'*obj.τ⊥' + obj.ζt'*τ(obj)')[1:p,1:p]
+	endocoefs[:,:,2] = -eye(p) - (obj.α*δ(obj)'*obj.τ⊥' + obj.ζt'*τ(obj)')[1:p,1:p]
+	if obj.lags > 2
+		Ψ = (obj.Z3\(obj.Z0 - obj.Z2*obj.τ*ρ(obj)*obj.α' - obj.Z1*(obj.τ⊥*δ(obj)*obj.α' + obj.τ*obj.ζt)))'
+		endocoefs[:,:,1] += Ψ[:,1:p]
+		endocoefs[:,:,obj.lags] = -Ψ[:,(obj.lags-3)*p+1:(obj.lags-2)*p]
+		if obj.lags > 3
+			endocoefs[:,:,2] += Ψ[:,p+1:2p] - 2*Ψ[:,1:p]
+			endocoefs[:,:,obj.lags-1] = Ψ[:,(obj.lags-4)*p+1:(obj.lags-3)*p] - 2*Ψ[:,(obj.lags-3)*p+1:(obj.lags-2)*p]
+		end
+		for i = 1:obj.lags - 4
+			endocoefs[:,:,i+2] = Ψ[:,p*(i-1)+1:p*i] - 2*Ψ[:,p*i+1:p*(i+1)] + Ψ[:,p*(i+1)+1:p*(i+2)]
+		end
+	end
+	return VAR(obj.endogenous, obj.exogenous, endocoefs, zeros(0,0))
+end	

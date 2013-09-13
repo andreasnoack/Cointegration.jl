@@ -61,6 +61,21 @@ function rrr!(Y::Matrix, X::Matrix, rank::Int64)
 end
 rrr(Y::Matrix, X::Matrix, args...) = rrr!(copy(Y), copy(X), args...)
 
+function student!(X::Matrix)
+	m, n = size(X)
+	mX = mean(X,1)
+	for j = 1:n
+		for i = 1:m
+			X[i,j] -= mX[j]
+		end
+	end
+	SX = X'X
+	for i = 1:m
+		X[i,:] = cholfact!((SX - X[i,:]'*X[i,:])/m,:L)[:L]\vec(X[i,:])
+	end
+	return X
+end
+
 # Simulation of rank test
 function fS(dX::Matrix{Float64}, Y::Matrix{Float64}, dZ::Matrix{Float64})
 	A = dX[2:,:]::Matrix{Float64}

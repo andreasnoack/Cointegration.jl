@@ -6,7 +6,11 @@ type CivecmI2 <: AbstractCivecm
 	rankI2::Int64
 	α::Matrix{Float64}
 	ρδ::Matrix{Float64}
+	Hρδ::Matrix{Float64}
 	τ::Matrix{Float64}
+	Hτ::Matrix{Float64}
+	hτ::Vector{Float64}
+	τ⊥::Matrix{Float64}
 	ζt::Matrix{Float64}
 	llConvCrit::Float64
 	maxiter::Int64
@@ -32,7 +36,11 @@ function civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 					rankI2,
 					Array(Float64, p, rankI1), 
 					Array(Float64, p1, rankI1),
+					eye(p1),
 					Array(Float64, p1, rankI1 + rankI2),
+					eye(p1*(rankI1 + rankI2)),
+					zeros(p1*(rankI1 + rankI2)),
+					Array(Float64, p1, p1 - rankI1 - rankI2),
 					Array(Float64, rankI1 + rankI2, p),
 					1.0e-8, 
 					5000, 
@@ -102,7 +110,11 @@ copy(obj::CivecmI2) = CivecmI2(copy(obj.endogenous),
 							   obj.rankI2,
 							   copy(obj.α),
 							   copy(obj.ρδ),
+							   copy(obj.Hρδ),
 							   copy(obj.τ),
+							   copy(obj.Hτ), 
+							   copy(obj.hτ),
+							   copy(obj.τ⊥),							   
 							   copy(obj.ζt),
 							   obj.llConvCrit,
 							   obj.maxiter,
@@ -125,7 +137,11 @@ function setrank(obj::CivecmI2, rankI1::Int64, rankI2::Int64)
 		obj.rankI2 = rankI2
 		obj.α 	= Array(Float64, p, rankI1)
 		obj.ρδ 	= Array(Float64, p1, rankI1)
+		obj.Hρδ = eye(p1)
 		obj.τ 	= Array(Float64, p1, rankI1 + rankI2)
+		obj.Hτ 	= eye(p1*(rankI1 + rankI2))
+		obj.hτ 	= zeros(p1*(rankI1 + rankI2))
+		obj.τ⊥ 	= Array(Float64, p1, p1 - rankI1 - rankI2)		
 		obj.ζt 	= Array(Float64, rankI1 + rankI2, p)
 	end
 	return estimate(obj)
@@ -260,21 +276,22 @@ function estimateτSwitch(obj::CivecmI2)
 	S22 = obj.R2'obj.R2/iT
 
 	# Memory allocation
-	Rτ = Array(Float64, iT, p1)
-	R1τ = Array(Float64, iT, rs)
-	workX = Array(Float64, rs, p1)
-	mX = Array(Float64, iT, p1)
-	workY = Array(Float64, rs, p)
-	mY = Array(Float64, iT, p)
-	αort = Array(Float64, p, p - obj.rankI1)
+	Rτ 		= Array(Float64, iT, p1)
+	R1τ 	= Array(Float64, iT, rs)
+	workX 	= Array(Float64, rs, p1)
+	mX 		= Array(Float64, iT, p1)
+	workY 	= Array(Float64, rs, p)
+	mY 		= Array(Float64, iT, p)
+	αort 	= Array(Float64, p, p - obj.rankI1)
 	workRRR = Array(Float64, obj.rankI1)
-	ρ = sub(obj.ρδ, 1:rs, 1:obj.rankI1)
-	ρort = Array(Float64, rs, rs - obj.rankI1)
-	δ = sub(obj.ρδ, rs+1:p1, 1:obj.rankI1)
+	ρ 		= sub(obj.ρδ, 1:rs, 1:obj.rankI1)
+	ρort 	= Array(Float64, rs, rs - obj.rankI1)
+	δ 		= sub(obj.ρδ, rs+1:p1, 1:obj.rankI1)
+	φ_ρδ 	= Array(Float64, size(obj.Hρδ, 2), obj.rankI1)
+	φ_τ 	= Array(Float64, size(obj.Hτ, 2))
 	ζtαort = Array(Float64, rs, p - obj.rankI1)
 	res = Array(Float64, iT, p)
 	estimate2step(obj)
-	τort = Array(Float64, p1, p1 - rs)
 	# Ω = Cholesky(eye(p), 'U')
 	Ω = Array(Float64, p, p)
 	A = Array(Float64, rs, rs)
@@ -282,18 +299,20 @@ function estimateτSwitch(obj::CivecmI2)
 	C = Array(Float64, rs, rs)
 	D = Array(Float64, p1, p1)
 	E = Array(Float64, p1*rs)
+	ABCD = Array(Float64, p1*rs, p1*rs)
 
 	# Algorithm
 	ll = -realmax()
 	ll0 = ll
 	for j = 1:obj.maxiter
-		τort[:] = null(obj.τ')
+		obj.τ⊥[:] = null(obj.τ')[:,1:p1 - obj.rankI1 - obj.rankI2]
 		Rτ[:,1:rs] = obj.R2*obj.τ
-		Rτ[:,rs+1:end] = obj.R1*τort
+		Rτ[:,rs+1:end] = obj.R1*obj.τ⊥
 		R1τ[:] = obj.R1*obj.τ
 		workX[:], mX[:] = mreg(Rτ, R1τ)
 		workY[:], mY[:] = mreg(obj.R0, R1τ)
-		obj.α[:], workRRR[:], obj.ρδ[:] = rrr(mY, mX, obj.rankI1)
+		obj.α[:], workRRR[:], φ_ρδ[:] = rrr(mY, mX*obj.Hρδ, obj.rankI1)
+		obj.ρδ[:] = obj.Hρδ*φ_ρδ
 		obj.α *= Diagonal(workRRR)
 		obj.ζt[:], res[:] = mreg(obj.R0 - Rτ*obj.ρδ*obj.α', R1τ)
 		Ω[:] = res'res/iT
@@ -310,9 +329,11 @@ function estimateτSwitch(obj::CivecmI2)
 		ζtαort[:] = obj.ζt*αort
 		C[:] = ζtαort*(cholfact!(αort'Ω*αort)\(ζtαort'))
 		D[:] = S11
-		E[:] = S20*(Ω\obj.α)*ρ' - S21*(τort*δ*obj.α' + obj.τ*obj.ζt)*(Ω\obj.α)*ρ' + S10*αort*(cholfact!(αort'Ω*αort)\(ζtαort'))
-		obj.τ[:] = (kron(A,B) + kron(C,D))\E
-		obj.τ[:] = obj.τ/real(sqrtm(obj.τ'S22*obj.τ))
+		E[:] = S20*(Ω\obj.α)*ρ' - S21*(obj.τ⊥*δ*obj.α' + obj.τ*obj.ζt)*(Ω\obj.α)*ρ' + S10*αort*(cholfact!(αort'Ω*αort)\(ζtαort'))
+		ABCD[:] = kron(A,B) + kron(C,D)
+		φ_τ[:] 	= (ABCD*obj.Hτ)\(E - ABCD*obj.hτ)
+		obj.τ[:] = obj.Hτ*φ_τ + obj.hτ
+		# obj.τ[:] = obj.τ/real(sqrtm(obj.τ'S22*obj.τ))
 		# obj.τ[:] = full(qrfact!(obj.τ)[:Q])
 		# obj.τ[:] = obj.τ/sqrtm(Hermitian(obj.τ'S11*obj.τ))
 	end
@@ -330,6 +351,7 @@ function estimate2step(obj)
 	ξ *= Diagonal(vals)
 	obj.τ[:,1:obj.rankI1] = β
 	obj.τ[:,obj.rankI1 + 1:end] = β⊥*η
+	obj.τ⊥[:] = β⊥*null(η')
 	obj.ρδ[1:obj.rankI1 + obj.rankI2,:] = eye(obj.rankI1 + obj.rankI2, obj.rankI1)
 	obj.ρδ[obj.rankI1 + obj.rankI2 + 1:end,:] = bar(β⊥*null(η'))'Γt*bar(obj.α)
 	obj.ζt[1:obj.rankI1,:] = bar(β)'Γt
@@ -353,11 +375,11 @@ end
 
 function ranktest(obj::CivecmI2, reps::Int64)
 	vals 	= ranktest(obj)
-	pvals 	= ranktestpvalues(obj, vals, reps)
+	pvals 	= ranktestPvaluesSimluateAsymp(obj, vals, reps)
 	return (vals, pvals)
 end
 
-function ranktestpvalues(obj::CivecmI2, testvalues::Matrix, reps::Int64)
+function ranktestPvaluesSimluateAsymp(obj::CivecmI2, testvalues::Matrix, reps::Int64)
 	(iT, ip) = size(obj.endogenous)
 	pvals = zeros(ip, ip + 1)
 	rankdist = zeros(reps)
@@ -370,6 +392,38 @@ function ranktestpvalues(obj::CivecmI2, testvalues::Matrix, reps::Int64)
 			@printf("Simulation of model H(%d,%d). %3.2f percent completed.\n", i, j, 100 * (0.5 * i * (i + 1) + i * (ip - i + 1) + j + 1) / (0.5 * ip^2 + 1.5 * ip))
 		end
 	end
+	return pvals
+end
+function ranktestPvaluesBootstrap(obj::CivecmI2, testvalues::Matrix, reps::Int64)
+	iT, p = size(obj.R0)
+	r, s = obj.rankI1, obj.rankI2
+	bootobj = copy(obj)
+	objres = Array(Float64, iT, p)
+	workres = Array(Float64, iT, p)
+	mm = Array(Float64, p)
+	bootbool = BitArray(reps)
+	pvals = zeros(p,p+1)
+	for i = 0:p-1
+		for j = 0:p-i
+			objvar = convert(VAR, setrank(obj, i, j))
+			objres[:] = residuals(obj)
+			mm[:] = mean(objres, 1)
+			tmpval = testvalues[i+1,i+j+1]
+			for k = 1:reps
+				bn = randn(iT)
+				for l = 1:p
+					for m = 1:iT
+						workres[m,l] = (objres[m,l] - mm[l])*bn[m] + mm[l]
+					end
+				end
+				bootobj.endogenous[:] = simulate(objvar, workres)
+				auxilliaryMatrices(bootobj)
+				bootbool[k] = 2*(loglikelihood(setrank(bootobj, p, 0)) - loglikelihood(setrank(bootobj, i, j))) > tmpval
+			end
+			pvals[i+1,j+i+1] = mean(bootbool)
+		end
+	end
+	setrank(obj, r, s)
 	return pvals
 end
 
