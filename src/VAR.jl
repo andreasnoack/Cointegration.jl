@@ -5,10 +5,13 @@ type VAR
 	exocoefs::Matrix{Float64}
 end
 
-function eigvals(obj::VAR)
+eigfact(obj::VAR) = eigfact(companion(obj))
+eigvals(obj::VAR) = eigvals(companion(obj))
+
+function companion(obj::VAR)
 	p = size(obj.endogenous, 2)
 	k = size(obj.endocoefs, 3)
-	return eigvals([reshape(obj.endocoefs, p, p*k); eye((k-1)*p, k*p)])
+	return [reshape(obj.endocoefs, p, p*k); eye((k-1)*p, k*p)]
 end
 
 function simulate(obj::VAR, innovations::Matrix{Float64}, init::Matrix{Float64})

@@ -442,8 +442,9 @@ function show(io::IO, obj::CivecmI2)
 end
 
 # Coefficients
+α(obj::CivecmI2) = fit.α
 β(obj::CivecmI2) = τ(obj)*ρ(obj)
-τ!(obj::CivecmI2) = obj.τ
-τ(obj::CivecmI2) = copy(obj.τ)
+τ(obj::CivecmI2) = obj.τ
+# τ(obj::CivecmI2) = copy(obj.τ)
 ρ(obj::CivecmI2) = obj.ρδ[1:obj.rankI1+obj.rankI2,:]
 δ(obj::CivecmI2) = obj.ρδ[obj.rankI1+obj.rankI2+1:end,:]

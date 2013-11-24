@@ -23,11 +23,11 @@ end
 function lagmatrix(A::Matrix, lags::AbstractArray{Int64, 1})
 	(iT, ip) = size(A)
 	if isempty(lags) return Array(Float64, iT, 0) end
-	ans = Array(Float64, iT - max(lags), ip * size(lags, 1))
+	ans = Array(Float64, iT - maximum(lags), ip * size(lags, 1))
 	for i in 1:ip
 		for j in 1:size(lags, 1)
 			for k in 1:size(ans, 1)
-				ans[k, i + (j - 1)*ip] = A[k + max(lags) - lags[j], i]
+				ans[k, i + (j - 1)*ip] = A[k + maximum(lags) - lags[j], i]
 			end
 		end
 	end
@@ -49,7 +49,7 @@ function rrr!(Y::Matrix, X::Matrix)
 	svdY = svdfact!(Y, true)
 	svdZ = svdfact!(svdX[:U]'svdY[:U], true)
 	Sm1 = zeros(iX)
-	index = svdX[:S] .> 10e-9*max(X)
+	index = svdX[:S] .> 10e-9*maximum(X)
 	Sm1[index] = 1 ./ svdX[:S][index]
 	α = svdY[:V]*Diagonal(svdY[:S])*svdZ[:V]/sqrt(iT)
 	β = sqrt(iT)*svdX[:V]*Diagonal(Sm1)*svdZ[:U]

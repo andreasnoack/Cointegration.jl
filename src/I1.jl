@@ -119,7 +119,7 @@ function show(io::IO, obj::CivecmI1)
 		println()
 	end
 	println("\nPi:")
-	print_matrix(io, obj.α*obj.β')
+	Base.print_matrix(io, obj.α*obj.β')
 end
 
 function setrank(obj::CivecmI1, rank::Int64)
