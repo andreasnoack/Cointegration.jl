@@ -40,6 +40,8 @@ civecmI1(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags::Int64) =
 civecmI1(endogenous::Matrix{Float64}, lags::Int64) = civecmI1(endogenous, zeros(size(endogenous, 1), 0), lags)
 civecmI1(endogenous::Matrix{Float64}, exogenous::Range1, lags::Int64) = civecmI1(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
 
+β(obj::CivecmI1) = obj.β
+
 function auxilliaryMatrices(obj::CivecmI1)
 	iT, p = size(obj.Z0)
 	pexo = size(obj.exogenous, 2)
