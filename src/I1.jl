@@ -5,6 +5,9 @@ type CivecmI1 <: AbstractCivecm
 	α::Matrix{Float64}
 	β::Matrix{Float64}
 	Γ::Matrix{Float64}
+	αMatrix::Matrix
+	βMatrix::Matrix
+	βVector::Vector
 	llConvCrit::Float64
 	maxiter::Int64
 	Z0::Matrix{Float64}
@@ -24,7 +27,10 @@ function civecmI1(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 				   lags, 
 				   Array(Float64, p, rank), 
 				   Array(Float64, p1, rank),
-				   Array(Float64, p, (lags - 1)*p + lags*pexo), 
+				   Array(Float64, p, (lags - 1)*p + lags*pexo),
+				   eye(p),
+				   eye(p1),
+				   zeros(p1), 
 				   1.0e-8, 
 				   5000, 
 				   Array(Float64, iT, p),
@@ -81,18 +87,21 @@ function auxilliaryMatrices(obj::CivecmI1)
 	return obj
 end
 
-copy(obj::CivecmI1) = CivecmI1(copy(obj.endogenous), 
-							   copy(obj.exogenous), 
-							   obj.lags, 
-							   copy(obj.α), 
-							   copy(obj.β), 
-							   copy(obj.Γ), 
-							   obj.llConvCrit, 
-							   obj.maxiter, 
-							   copy(obj.Z0), 
-							   copy(obj.Z1), 
-							   copy(obj.Z2), 
-							   copy(obj.R0), 
+copy(obj::CivecmI1) = CivecmI1(copy(obj.endogenous),
+							   copy(obj.exogenous),
+							   obj.lags,
+							   copy(obj.α),
+							   copy(obj.β),
+							   copy(obj.Γ),
+							   copy(obj.αMatrix),
+							   copy(obj.βMatrix),
+							   copy(obj.βVector),
+							   obj.llConvCrit,
+							   obj.maxiter,
+							   copy(obj.Z0),
+							   copy(obj.Z1),
+							   copy(obj.Z2),
+							   copy(obj.R0),
 							   copy(obj.R1))
 
 function show(io::IO, obj::CivecmI1)
@@ -130,6 +139,16 @@ function setrank(obj::CivecmI1, rank::Int64)
 	return estimateEigen(obj)
 end
 
+function estimate(obj::CivecmI1; method = :switch)
+	if method == :switch || method == :Boswijk
+		return estimateSwitch(obj)
+	elseif method == :eigen
+		return estimateEigen(obj)
+	else
+		error("no such method")
+	end
+end
+
 function estimateEigen(obj::CivecmI1)
 	obj.α[:], svdvals, obj.β[:] = rrr(obj.R0, obj.R1, size(obj.α, 2))
 	obj.α[:] = obj.α*Diagonal(svdvals)
@@ -137,7 +156,7 @@ function estimateEigen(obj::CivecmI1)
 	return obj
 end
 
-function estimateSwitch(obj::CivecmI1, βMatrix::Matrix, βVector::Vector, αMatrix::Matrix)
+function estimateSwitch(obj::CivecmI1)
 	iT = size(obj.Z0, 1)
 	S11 = scale!(obj.R1'obj.R1, 1/iT)
 	S10 = scale!(obj.R1'obj.R0, 1/iT)
@@ -146,10 +165,10 @@ function estimateSwitch(obj::CivecmI1, βMatrix::Matrix, βVector::Vector, αMat
 	for i = 1:obj.maxiter
 		OmegaInv = inv(cholfact!(residualvariance(obj)))
 		aoas11 = kron(obj.α'OmegaInv*obj.α, S11)
-		phi = qrpfact!(βMatrix'*aoas11*βMatrix)\(βMatrix'*(vec(S10*OmegaInv*obj.α) - aoas11*βVector))
-		obj.β = reshape(βMatrix*phi + βVector, size(obj.β)...)
-		γ = qrpfact!(αMatrix'kron(OmegaInv, obj.β'S11*obj.β)*αMatrix)\(αMatrix'vec(obj.β'S10*OmegaInv))
-		obj.α = reshape(αMatrix*γ, size(obj.α, 2), size(obj.α, 1))'
+		phi = qrpfact!(obj.βMatrix'*aoas11*obj.βMatrix)\(obj.βMatrix'*(vec(S10*OmegaInv*obj.α) - aoas11*obj.βVector))
+		obj.β = reshape(obj.βMatrix*phi + obj.βVector, size(obj.β)...)
+		γ = qrpfact!(obj.αMatrix'kron(OmegaInv, obj.β'S11*obj.β)*obj.αMatrix)\(obj.αMatrix'vec(obj.β'S10*OmegaInv))
+		obj.α = reshape(obj.αMatrix*γ, size(obj.α, 2), size(obj.α, 1))'
 		ll1 = loglikelihood(obj)
 		if abs(ll1 - ll0) < obj.llConvCrit break end
 		ll0 = ll1
@@ -197,39 +216,6 @@ function show(io::IO, obj::TraceTest)
 	@printf("\n Rank    Value  p-value\n")
 	for i = 1:length(obj.values)
 		@printf("%5d%9.3f%9.3f\n", i-1, obj.values[i], obj.pvalues[i])
-	end
-end
-
-## LR test
-type LRTest{T<:CivecmI1}
-	H0::T
-	HA::T
-	value::Float64
-	df::Int64
-end
-
-lrtest(obj0::CivecmI1, objA::CivecmI1, df::Integer) = LRTest(obj0, objA, 2*(loglikelihood(objA) - loglikelihood(obj0)), df)
-
-function bootstrap(obj::LRTest, reps::Integer)
-	bootH0 = copy(obj.H0)
-	bootHA = copy(obj.HA)
-	bootVAR = convert(VAR, bootH0)
-	iT, p = size(obj.H0.Z0)
-	H0Residuals = residuals(obj.H0)
-	mbr = mean(H0Residuals, 1)
-	bi = Array(Float64, iT)
-	bootResiduals = similar(H0Residuals)
-	for i = 1:reps
-		bi[:] = randn(iT)
-		bootResiduals[:] = copy(H0Residuals)
-		for k = 1:p
-			for j = 1:iT
-			 	bootResiduals[j,k] -= mbr[k]
-			 	bootResiduals[j,k] *= bi[j]
-			 	bootResiduals[j,k] += mbr[k]
-			end
-		end
-		bootH0.endogenous[:] = simulate(bootVAR, iT)
 	end
 end
 
