@@ -44,7 +44,7 @@ function normalitytest(res::StridedVecOrMat)
 	n = size(res, 1)
 	y = res
 	y = (y .- mean(y))
-	y = y/sqrtm(y'y/n)
+	y = isa(y, Vector) ? y/sqrt(dot(y,y)/n) : y/sqrtm(y'y/n)
 	rtb1 = mean(y.^3, 1)
 	b2 = mean(y.^4, 1)
 	z1 = Float64[normalitytestz1(n, t) for t in rtb1]
