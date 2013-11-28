@@ -40,12 +40,12 @@ end
 
 lrtest(obj0::AbstractCivecm, objA::AbstractCivecm, df::Integer) = LRTest(obj0, objA, 2*(loglikelihood(objA) - loglikelihood(obj0)), df)
 
-function bootstrap(obj::LRTest, reps::Integer)
+function bootstrap(obj::LRTest, reps::Integer, simH0 = true)
 	lrvals = Array(Float64, reps)
 	bootH0 = copy(obj.H0)
 	bootHA = copy(obj.HA)
 	bootHA.endogenous = bootH0.endogenous
-	bootVAR = convert(VAR, bootH0)
+	bootVAR = simH0 ? convert(VAR, bootH0) : convert(VAR, bootHA)
 	iT, p = size(obj.H0.Z0)
 	H0Residuals = residuals(obj.H0)
 	mbr = mean(H0Residuals, 1)
