@@ -28,9 +28,9 @@ function civecmI1(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 				   Array(Float64, p, rank), 
 				   Array(Float64, p1, rank),
 				   Array(Float64, p, (lags - 1)*p + lags*pexo),
-				   eye(p),
-				   eye(p1),
-				   zeros(p1), 
+				   eye(p*rank),
+				   eye(p1*rank),
+				   zeros(p1*rank), 
 				   1.0e-8, 
 				   5000, 
 				   Array(Float64, iT, p),
@@ -136,6 +136,9 @@ end
 function setrank(obj::CivecmI1, rank::Int64)
 	obj.α = Array(Float64, size(obj.R0, 2), rank)
 	obj.β = Array(Float64, size(obj.R1, 2), rank)
+	obj.αMatrix = eye(size(obj.R0, 2)*rank)
+	obj.βMatrix = eye(size(obj.R1, 2)*rank)
+	obj.βVector = zeros(size(obj.R1, 2)*rank)
 	return estimateEigen(obj)
 end
 
