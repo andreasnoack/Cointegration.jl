@@ -7,6 +7,7 @@ type CivecmI2 <: AbstractCivecm
 	α::Matrix{Float64}
 	ρδ::Matrix{Float64}
 	Hρδ::Matrix{Float64}
+	# hρδ::Vector{Float64}
 	τ::Matrix{Float64}
 	Hτ::Matrix{Float64}
 	hτ::Vector{Float64}
@@ -14,6 +15,7 @@ type CivecmI2 <: AbstractCivecm
 	ζt::Matrix{Float64}
 	llConvCrit::Float64
 	maxiter::Int64
+	convCount::Int64
 	method::ASCIIString
 	Z0::Matrix{Float64}
 	Z1::Matrix{Float64}
@@ -37,6 +39,8 @@ function civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 					Array(Float64, p, rankI1), 
 					Array(Float64, p1, rankI1),
 					eye(p1),
+					# kron(eye(rankI1), [zeros(rankI1 + rankI2), ones(p1 - rankI1 - rankI2)]),
+					# vec([eye(rankI1 + rankI2, rankI1); zeros(p1 - rankI1 - rankI2, rankI1)]),
 					Array(Float64, p1, rankI1 + rankI2),
 					eye(p1*(rankI1 + rankI2)),
 					zeros(p1*(rankI1 + rankI2)),
@@ -44,6 +48,7 @@ function civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 					Array(Float64, rankI1 + rankI2, p),
 					1.0e-8, 
 					5000, 
+					0,
 					"ParuoloRahbek",
 					Array(Float64, iT, p), 
 					Array(Float64, iT, p1),
@@ -53,7 +58,7 @@ function civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 					Array(Float64, iT, p1), 
 					Array(Float64, iT, p1))
 	auxilliaryMatrices(obj)
-	estimate(obj)
+	# estimate(obj)
 	return obj
 end
 civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags::Int64) = civecmI2(endogenous, exogenous, lags, size(endogenous, 2), 0)
@@ -111,6 +116,7 @@ copy(obj::CivecmI2) = CivecmI2(copy(obj.endogenous),
 							   copy(obj.α),
 							   copy(obj.ρδ),
 							   copy(obj.Hρδ),
+							   # copy(obj.hρδ),
 							   copy(obj.τ),
 							   copy(obj.Hτ), 
 							   copy(obj.hτ),
@@ -118,6 +124,7 @@ copy(obj::CivecmI2) = CivecmI2(copy(obj.endogenous),
 							   copy(obj.ζt),
 							   obj.llConvCrit,
 							   obj.maxiter,
+							   obj.convCount,
 							   obj.method,
 							   copy(obj.Z0),
 							   copy(obj.Z1),
@@ -138,6 +145,8 @@ function setrank(obj::CivecmI2, rankI1::Int64, rankI2::Int64)
 		obj.α 	= Array(Float64, p, rankI1)
 		obj.ρδ 	= Array(Float64, p1, rankI1)
 		obj.Hρδ = eye(p1)
+		# obj.Hρδ = kron(eye(rankI1), [zeros(rankI1 + rankI2), ones(p1 - rankI1 - rankI2)])
+		# obj.hρδ = vec([eye(rankI1 + rankI2, rankI1); zeros(p1 - rankI1 - rankI1, rankI1)])
 		obj.τ 	= Array(Float64, p1, rankI1 + rankI2)
 		obj.Hτ 	= eye(p1*(rankI1 + rankI2))
 		obj.hτ 	= zeros(p1*(rankI1 + rankI2))
@@ -292,8 +301,7 @@ function estimateτSwitch(obj::CivecmI2)
 	ζtαort = Array(Float64, rs, p - obj.rankI1)
 	res = Array(Float64, iT, p)
 	estimate2step(obj)
-	# Ω = Cholesky(eye(p), 'U')
-	Ω = Array(Float64, p, p)
+	Ω = eye(p)
 	A = Array(Float64, rs, rs)
 	B = Array(Float64, p1, p1)
 	C = Array(Float64, rs, rs)
@@ -304,6 +312,7 @@ function estimateτSwitch(obj::CivecmI2)
 	# Algorithm
 	ll = -realmax()
 	ll0 = ll
+	j = 1
 	for j = 1:obj.maxiter
 		obj.τ⊥[:] = null(obj.τ')[:,1:p1 - obj.rankI1 - obj.rankI2]
 		Rτ[:,1:rs] = obj.R2*obj.τ
@@ -311,14 +320,19 @@ function estimateτSwitch(obj::CivecmI2)
 		R1τ[:] = obj.R1*obj.τ
 		workX[:], mX[:] = mreg(Rτ, R1τ)
 		workY[:], mY[:] = mreg(obj.R0, R1τ)
-		obj.α[:], workRRR[:], φ_ρδ[:] = rrr(mY, mX*obj.Hρδ, obj.rankI1)
-		obj.ρδ[:] = obj.Hρδ*φ_ρδ
-		obj.α *= Diagonal(workRRR)
-		obj.ζt[:], res[:] = mreg(obj.R0 - Rτ*obj.ρδ*obj.α', R1τ)
-		Ω[:] = res'res/iT
+		# if j == 1
+			# Initiate parameters
+			obj.α[:], workRRR[:], φ_ρδ[:] = rrr(mY, mX*obj.Hρδ, obj.rankI1)
+			obj.ρδ[:] = obj.Hρδ*φ_ρδ
+			obj.α *= Diagonal(workRRR)
+			obj.ζt[:], res[:] = mreg(obj.R0 - Rτ*obj.ρδ*obj.α', R1τ)
+			Ω[:] = res'res/iT
+		# end
+		# switch(mY, mX, obj.ρδ, obj.α, Ω, obj.Hρδ, obj.hρδ, maxiter = obj.maxiter, xtol = obj.llConvCrit)
 		ll = loglikelihood(obj)
 		if abs(ll - ll0) < obj.llConvCrit 
-			@printf("Convergence in %d iterations.\n", j - 1)
+			# @printf("Convergence in %d iterations.\n", j - 1)
+			obj.convCount = j
 			break 
 		end
 		ll0 = ll

@@ -5,9 +5,9 @@ type CivecmI1 <: AbstractCivecm
 	α::Matrix{Float64}
 	β::Matrix{Float64}
 	Γ::Matrix{Float64}
-	αMatrix::Matrix
-	βMatrix::Matrix
-	βVector::Vector
+	Hα::Matrix
+	Hβ::Matrix
+	hβ::Vector
 	llConvCrit::Float64
 	maxiter::Int64
 	Z0::Matrix{Float64}
@@ -93,9 +93,9 @@ copy(obj::CivecmI1) = CivecmI1(copy(obj.endogenous),
 							   copy(obj.α),
 							   copy(obj.β),
 							   copy(obj.Γ),
-							   copy(obj.αMatrix),
-							   copy(obj.βMatrix),
-							   copy(obj.βVector),
+							   copy(obj.Hα),
+							   copy(obj.Hβ),
+							   copy(obj.hβ),
 							   obj.llConvCrit,
 							   obj.maxiter,
 							   copy(obj.Z0),
@@ -136,9 +136,9 @@ end
 function setrank(obj::CivecmI1, rank::Int64)
 	obj.α = Array(Float64, size(obj.R0, 2), rank)
 	obj.β = Array(Float64, size(obj.R1, 2), rank)
-	obj.αMatrix = eye(size(obj.R0, 2)*rank)
-	obj.βMatrix = eye(size(obj.R1, 2)*rank)
-	obj.βVector = zeros(size(obj.R1, 2)*rank)
+	obj.Hα = eye(size(obj.R0, 2)*rank)
+	obj.Hβ = eye(size(obj.R1, 2)*rank)
+	obj.hβ = zeros(size(obj.R1, 2)*rank)
 	return estimateEigen(obj)
 end
 
@@ -168,10 +168,10 @@ function estimateSwitch(obj::CivecmI1)
 	for i = 1:obj.maxiter
 		OmegaInv = inv(cholfact!(residualvariance(obj)))
 		aoas11 = kron(obj.α'OmegaInv*obj.α, S11)
-		phi = qrpfact!(obj.βMatrix'*aoas11*obj.βMatrix)\(obj.βMatrix'*(vec(S10*OmegaInv*obj.α) - aoas11*obj.βVector))
-		obj.β = reshape(obj.βMatrix*phi + obj.βVector, size(obj.β)...)
-		γ = qrpfact!(obj.αMatrix'kron(OmegaInv, obj.β'S11*obj.β)*obj.αMatrix)\(obj.αMatrix'vec(obj.β'S10*OmegaInv))
-		obj.α = reshape(obj.αMatrix*γ, size(obj.α, 2), size(obj.α, 1))'
+		phi = qrpfact!(obj.Hβ'*aoas11*obj.Hβ)\(obj.Hβ'*(vec(S10*OmegaInv*obj.α) - aoas11*obj.hβ))
+		obj.β = reshape(obj.Hβ*phi + obj.hβ, size(obj.β)...)
+		γ = qrpfact!(obj.Hα'kron(OmegaInv, obj.β'S11*obj.β)*obj.Hα)\(obj.Hα'vec(obj.β'S10*OmegaInv))
+		obj.α = reshape(obj.Hα*γ, size(obj.α, 2), size(obj.α, 1))'
 		ll1 = loglikelihood(obj)
 		if abs(ll1 - ll0) < obj.llConvCrit break end
 		ll0 = ll1

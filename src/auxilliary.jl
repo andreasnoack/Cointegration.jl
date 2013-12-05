@@ -108,6 +108,30 @@ function student!(X::Matrix)
 	return X
 end
 
+function switch(Y::Matrix, X::Matrix, A::Matrix, B::Matrix, Ω::Matrix, H=eye(prod(size(A))), h = zeros(prod(size(A))); maxiter = 1000, xtol = sqrt(eps()))
+	# Solve the reduced rank problem Y=XAB'+ε under the restriction vec(A) = Hφ + h by a switching algorithm
+	m, ny = size(Y)
+	nx = size(X, 2)
+	Sxx = X'X/m
+	Sxy = X'Y/m
+	i = 1
+	crit0 = -realmax()
+	crit1 = crit0
+	for i = 1:maxiter
+		ΩB = Ω\B
+		BΩBSxx = kron(B'ΩB, Sxx)
+		φ = (H'*BΩBSxx*H)\(H'*(vec(Sxy*ΩB) - BΩBSxx*h))
+		A[:] = H*φ + h
+		B[:] = (A'Sxx*A)\(A'Sxy)
+		Ω[:] = Base.LinAlg.syrk_wrapper('T', Y - X*A*B')/m
+		crit0 = crit1
+		crit1 = logdet(cholfact(Ω))
+		if abs(crit1 - crit0) < xtol break end
+	end
+	if i == maxiter warn("no convergence in $(i) iterations") end
+	return A, B, Ω, i
+end
+
 # Simulation of rank test
 function fS(dX::Matrix{Float64}, Y::Matrix{Float64}, dZ::Matrix{Float64})
 	A = dX[2:,:]::Matrix{Float64}
