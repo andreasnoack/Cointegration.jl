@@ -2,7 +2,7 @@ abstract AbstractCivecm
 
 eigvals(obj::AbstractCivecm) = eigvals(convert(VAR, obj))
 
-loglikelihood(obj::AbstractCivecm) = -0.5 * (size(obj.endogenous, 1) - obj.lags) * logdet(residualvariance(obj))
+loglikelihood(obj::AbstractCivecm) = -0.5*(size(obj.endogenous, 1) - obj.lags)*logdet(cholfact!(residualvariance(obj)))
 
 # aic(obj::Civecm) = 2*(npars(obj) - loglikelihood(obj))
 

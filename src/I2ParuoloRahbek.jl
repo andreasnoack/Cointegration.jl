@@ -7,7 +7,7 @@ type CivecmI2 <: AbstractCivecm
 	α::Matrix{Float64}
 	ρδ::Matrix{Float64}
 	Hρδ::Matrix{Float64}
-	# hρδ::Vector{Float64}
+	hρδ::Vector{Float64}
 	τ::Matrix{Float64}
 	Hτ::Matrix{Float64}
 	hτ::Vector{Float64}
@@ -17,6 +17,7 @@ type CivecmI2 <: AbstractCivecm
 	maxiter::Int64
 	convCount::Int64
 	method::ASCIIString
+	verbose::Bool
 	Z0::Matrix{Float64}
 	Z1::Matrix{Float64}
 	Z2::Matrix{Float64}
@@ -38,9 +39,9 @@ function civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 					rankI2,
 					Array(Float64, p, rankI1), 
 					Array(Float64, p1, rankI1),
-					eye(p1),
-					# kron(eye(rankI1), [zeros(rankI1 + rankI2), ones(p1 - rankI1 - rankI2)]),
-					# vec([eye(rankI1 + rankI2, rankI1); zeros(p1 - rankI1 - rankI2, rankI1)]),
+					# eye(p1*rankI1)[:,[rankI1+1:rankI1+rankI2],[2rankI1+rankI2+1:p1]],
+					kron(eye(rankI1), [zeros(rankI1 + rankI2), ones(p1 - rankI1 - rankI2)]),
+					vec([eye(rankI1 + rankI2, rankI1); zeros(p1 - rankI1 - rankI2, rankI1)]),
 					Array(Float64, p1, rankI1 + rankI2),
 					eye(p1*(rankI1 + rankI2)),
 					zeros(p1*(rankI1 + rankI2)),
@@ -50,6 +51,7 @@ function civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 					5000, 
 					0,
 					"ParuoloRahbek",
+					false,
 					Array(Float64, iT, p), 
 					Array(Float64, iT, p1),
 					Array(Float64, iT, p1),
@@ -116,7 +118,7 @@ copy(obj::CivecmI2) = CivecmI2(copy(obj.endogenous),
 							   copy(obj.α),
 							   copy(obj.ρδ),
 							   copy(obj.Hρδ),
-							   # copy(obj.hρδ),
+							   copy(obj.hρδ),
 							   copy(obj.τ),
 							   copy(obj.Hτ), 
 							   copy(obj.hτ),
@@ -126,6 +128,7 @@ copy(obj::CivecmI2) = CivecmI2(copy(obj.endogenous),
 							   obj.maxiter,
 							   obj.convCount,
 							   obj.method,
+							   obj.verbose,
 							   copy(obj.Z0),
 							   copy(obj.Z1),
 							   copy(obj.Z2),
@@ -144,9 +147,10 @@ function setrank(obj::CivecmI2, rankI1::Int64, rankI2::Int64)
 		obj.rankI2 = rankI2
 		obj.α 	= Array(Float64, p, rankI1)
 		obj.ρδ 	= Array(Float64, p1, rankI1)
-		obj.Hρδ = eye(p1)
+		obj.Hρδ = eye(p1*rankI1)
+		obj.hρδ = zeros(p1*rankI1)
 		# obj.Hρδ = kron(eye(rankI1), [zeros(rankI1 + rankI2), ones(p1 - rankI1 - rankI2)])
-		# obj.hρδ = vec([eye(rankI1 + rankI2, rankI1); zeros(p1 - rankI1 - rankI1, rankI1)])
+		# obj.hρδ = vec([eye(rankI1 + rankI2, rankI1); zeros(p1 - rankI1 - rankI2, rankI1)])
 		obj.τ 	= Array(Float64, p1, rankI1 + rankI2)
 		obj.Hτ 	= eye(p1*(rankI1 + rankI2))
 		obj.hτ 	= zeros(p1*(rankI1 + rankI2))
@@ -163,113 +167,6 @@ function estimate(obj::CivecmI2)
 	end
 	error("No method named %obj.method")
 end
-
-# function estimateSwitch(obj::CivecmI2)
-# 	iT, ip = size(obj.R0)
-# 	ip1 = size(obj.R1, 2)
-
-# 	if max(obj.rankI1, obj.rankI2) == 0
-# 		obj.α[:] 	= zeros(ip, obj.rankI1)
-# 		obj.β[:] 	= zeros(ip1, obj.rankI1)
-# 		obj.ν[:] 	= zeros(ip1, obj.rankI1)            
-# 		obj.ξ[:] 	= zeros(ip, obj.rankI2)
-# 		obj.γ[:] 	= zeros(ip1, obj.rankI2)
-# 		obj.σ[:] 	= zeros(ip, obj.rankI1)
-# 	elseif obj.rankI1 == ip
-# 		tmpFit 		= setrank(civecmI1(obj.endogenous, obj.exogenous, obj.lags), obj.rankI1)
-# 		obj.α[:] 	= tmpFit.α
-# 		obj.β[:] 	= tmpFit.β
-# 		obj.σ[:] 	= eye(ip, obj.rankI1)
-# 		tmpFit2 	= [obj.R1 obj.R2 * obj.β] \ obj.R0
-# 		tmpGam 		= tmpFit2[1:ip1,:]'
-# 		obj.ν[:] 	= (obj.α \ (tmpGam - obj.σ * obj.β'))'
-# 		obj.ξ[:] 	= zeros(ip, 0)
-# 		obj.γ[:] 	= zeros(ip1, 0)
-# 	else
-# 		tmp1 = speye(2 * obj.rankI1 + obj.rankI2 + 1, 2 * obj.rankI1 + obj.rankI2)
-# 		tmp2 = copy(tmp1[[reshape(reshape(1:2 * obj.rankI1, obj.rankI1, 2)', 2 * obj.rankI1), reshape([(2 * obj.rankI1 + obj.rankI2 + 1) * ones(Int, obj.rankI2) (1:obj.rankI2) + 2 * obj.rankI1]', 2 * obj.rankI2), reshape([(2 * obj.rankI1 + obj.rankI2 + 1) * ones(Int, obj.rankI1) 1:obj.rankI1]', 2 * obj.rankI1)], :])
-# 		K = kron(tmp2, speye(size(obj.R1, 2)))
-	    
-# 	    R2R1 = [obj.R2 obj.R1]
-# 	   	tmpX = [obj.R2 * obj.β + obj.R1 * obj.ν obj.R1 * obj.γ obj.R1 * obj.β]
-# 		tmpCoef = tmpX \ obj.R0
-# 		mOmega = eye(ip)
-# 		tmpGLS = gls(obj.R0, [obj.R2 obj.R1], [obj.α obj.ξ obj.σ], K, [], mOmega)
-# 		for k = 1:20
-# 			# Iterative procedure
-# 			# Initialisation
-# 			if obj.rankI1 == 0
-# 				obj.α[:] 	= zeros(ip, 0)
-# 				obj.β[:] 	= zeros(ip1, 0)
-# 				obj.ν[:] 		= zeros(ip1, 0)
-# 				obj.γ[:] 	= rrr(obj.R0, obj.R1, obj.rankI2)[3]
-# 				obj.ξ[:] 		= ((obj.R1 * obj.γ) \ obj.R0)' #'
-# 				obj.σ[:] 	= zeros(ip, 0)
-# 				mOmega = residualvariance(obj)
-# 			else
-# 			#if ip == sum(obj.rank)
-# 				if k == 1
-# 					tmpFit = setrank(civecmI1(obj.endogenous, obj.exogenous, obj.lags), obj.rankI1+ obj.rankI2)
-# 					obj.α[:] 	= tmpFit.α[:,1:obj.rankI1]
-# 					obj.β[:] 	= tmpFit.β[:,1:obj.rankI1]
-# 					# tmpFit2 	= mreg(obj.R0, [obj.R1 obj.R2 * obj.β])[1]
-# 					# tmpGam 		= copy(tmpFit2[1:ip1,:])'
-# 					obj.γ[:] 	= tmpFit.β[:,obj.rankI1+1:obj.rankI1+obj.rankI2]
-# 					# obj.σ 	= eye(ip, obj.rankI1)
-# 					obj.σ[:]	= Array(Float64, ip, obj.rankI1)
-# 					obj.ν[:]	= full(qrfact!([obj.β obj.γ])[:Q], false)[:,end-obj.rankI1+1:end]
-# 					# obj.ν 		= (obj.α \ (tmpGam - obj.σ * obj.β'))'
-# 					obj.ξ[:] 	= Array(Float64, ip, obj.rankI2)
-# 					mOmega 		= residualvariance(obj)
-# 				else
-# 					obj.β[:] 	= randn(ip1, obj.rankI1)
-# 					obj.ν[:] 	= randn(ip1, obj.rankI1)            
-# 					obj.γ[:] 	= randn(ip1, obj.rankI2)
-# 					mOmega 		= residualvariance(obj)
-# 				end
-# 			end
-# 			# else
-# 				# m = min(obj.rankI1, ip - obj.rankI1 - obj.rankI2);
-# 			 	# tmpFit = CivecmI2alt(obj.endogenous, obj.exogenous, obj.lags).setrank([obj.rankI1 - m, obj.rankI2 + 2 * m]);
-# 				# [obj.α, obj.β, obj.ν, obj.ξ, obj.γ, obj.σ] = CivecmI2alt.initialPars(tmpFit.α, tmpFit.β, tmpFit.ν, tmpFit.ξ, tmpFit.γ, tmpFit.σ, 1, m)
-			
-
-# 			ll = -1.0e9
-# 			ll0 = ll
-
-# 			for j = 0:obj.maxiter
-# 				# The AC-step
-# 				# println(obj.β)
-# 				tmpX[:] 		= [obj.R2 * obj.β + obj.R1 * obj.ν obj.R1 * obj.γ obj.R1 * obj.β]
-# 				tmpCoef[:] 		= qrpfact!(tmpX'tmpX) \ (tmpX'obj.R0)
-# 				obj.α[:] 	= tmpCoef[1:obj.rankI1, :]'
-# 				obj.ξ[:] 		= tmpCoef[obj.rankI1 + 1:(obj.rankI1 + obj.rankI2),:]'
-# 				obj.σ[:] 	= tmpCoef[obj.rankI1 + obj.rankI2 + 1:end, :]'
-# 				# The CC Step ala Rocco
-# 				tmpGLS[:] 		= gls(obj.R0, R2R1, [obj.α obj.ξ obj.σ], K, [], mOmega)
-# 				obj.ν[:] 		= tmpGLS[ip1 + 1:, 1:obj.rankI1]
-# 				obj.γ[:] 	= tmpGLS[ip1 + 1:, obj.rankI1 + 1:obj.rankI1 + obj.rankI2]
-# 				obj.β[:] 	= tmpGLS[ip1 + 1:, obj.rankI1 + obj.rankI2 + 1:]
-#                 # Residual variable step
-#                 ll0 		= ll
-#                 mOmega[:]	= residualvariance(obj)
-#                 ll 			= -0.5 * logdet(cholfact(mOmega))
-#                 # @printf("Average log-likelihood value: %f\n", ll)
-#                 if abs(ll - ll0) < obj.llConvCrit
-#                 	@printf("Convergence in %d iterations.\n", j - 1)
-#                 	break
-#                 end
-#             end
-#             if norm(obj.ν) > 1.0e6; println(obj.α, obj.ν, obj.α*obj.ν'); end
-#             if
-# 				abs(ll - ll0) < obj.llConvCrit
-# 				break
-# 			end             
-# 			print("Om igen!")
-# 		end
-# 	end
-# 	return obj
-# end
 
 function estimateτSwitch(obj::CivecmI2)
 	# Dimentions
@@ -291,44 +188,59 @@ function estimateτSwitch(obj::CivecmI2)
 	mX 		= Array(Float64, iT, p1)
 	workY 	= Array(Float64, rs, p)
 	mY 		= Array(Float64, iT, p)
-	αort 	= Array(Float64, p, p - obj.rankI1)
+	α⊥ 	= Array(Float64, p, p - obj.rankI1)
 	workRRR = Array(Float64, obj.rankI1)
 	ρ 		= sub(obj.ρδ, 1:rs, 1:obj.rankI1)
 	ρort 	= Array(Float64, rs, rs - obj.rankI1)
 	δ 		= sub(obj.ρδ, rs+1:p1, 1:obj.rankI1)
 	φ_ρδ 	= Array(Float64, size(obj.Hρδ, 2), obj.rankI1)
 	φ_τ 	= Array(Float64, size(obj.Hτ, 2))
-	ζtαort = Array(Float64, rs, p - obj.rankI1)
+	ζtα⊥ = Array(Float64, rs, p - obj.rankI1)
 	res = Array(Float64, iT, p)
-	estimate2step(obj)
 	Ω = eye(p)
 	A = Array(Float64, rs, rs)
-	B = Array(Float64, p1, p1)
+	B = S22
 	C = Array(Float64, rs, rs)
-	D = Array(Float64, p1, p1)
+	D = S11
 	E = Array(Float64, p1*rs)
 	ABCD = Array(Float64, p1*rs, p1*rs)
+
+	# Choose initial values from two step estimation procedure
+	estimate2step(obj)
+	# obj.τ[:] = obj.Hτ*randn(size(obj.Hτ, 2)) + obj.hτ
+	# obj.τ[:] = obj.Hτ*(obj.Hτ\(vec(obj.τ) - obj.hτ)) + obj.hτ # but choose a value within the restrited parameter space by projecting onto it
 
 	# Algorithm
 	ll = -realmax()
 	ll0 = ll
 	j = 1
 	for j = 1:obj.maxiter
+		if obj.verbose
+			println("\nIteration:", j)
+		end
 		obj.τ⊥[:] = null(obj.τ')[:,1:p1 - obj.rankI1 - obj.rankI2]
 		Rτ[:,1:rs] = obj.R2*obj.τ
 		Rτ[:,rs+1:end] = obj.R1*obj.τ⊥
 		R1τ[:] = obj.R1*obj.τ
 		workX[:], mX[:] = mreg(Rτ, R1τ)
 		workY[:], mY[:] = mreg(obj.R0, R1τ)
-		# if j == 1
+		if j == 1
 			# Initiate parameters
-			obj.α[:], workRRR[:], φ_ρδ[:] = rrr(mY, mX*obj.Hρδ, obj.rankI1)
-			obj.ρδ[:] = obj.Hρδ*φ_ρδ
+			obj.α[:], workRRR[:], obj.ρδ[:] = rrr(mY, mX, obj.rankI1)
+			# obj.ρδ[:] = obj.Hρδ*φ_ρδ
 			obj.α *= Diagonal(workRRR)
 			obj.ζt[:], res[:] = mreg(obj.R0 - Rτ*obj.ρδ*obj.α', R1τ)
 			Ω[:] = res'res/iT
-		# end
-		# switch(mY, mX, obj.ρδ, obj.α, Ω, obj.Hρδ, obj.hρδ, maxiter = obj.maxiter, xtol = obj.llConvCrit)
+			if obj.verbose
+				println("\nτ:\n", obj.τ)
+				println("ll:", loglikelihood(obj))
+			end
+		end
+		switch!(mY, mX, obj.ρδ, obj.α, Ω, obj.Hρδ, obj.hρδ, maxiter = obj.maxiter, xtol = obj.llConvCrit)
+		if obj.verbose
+			println("\nτ:\n", obj.τ)
+			println("ll:", loglikelihood(obj))
+		end
 		ll = loglikelihood(obj)
 		if abs(ll - ll0) < obj.llConvCrit 
 			# @printf("Convergence in %d iterations.\n", j - 1)
@@ -337,16 +249,20 @@ function estimateτSwitch(obj::CivecmI2)
 		end
 		ll0 = ll
 		# LinAlg.LAPACK.potrf!('U', Ω.UL)
-		αort[:] = null(obj.α')
+		α⊥[:] = null(obj.α')[:,p - 1:obj.rankI1]
 		A[:] = ρ*obj.α'*(Ω\obj.α)*ρ'
-		B[:] = S22
-		ζtαort[:] = obj.ζt*αort
-		C[:] = ζtαort*(cholfact!(αort'Ω*αort)\(ζtαort'))
-		D[:] = S11
-		E[:] = S20*(Ω\obj.α)*ρ' - S21*(obj.τ⊥*δ*obj.α' + obj.τ*obj.ζt)*(Ω\obj.α)*ρ' + S10*αort*(cholfact!(αort'Ω*αort)\(ζtαort'))
+		# B[:] = S22
+		ζtα⊥[:] = obj.ζt*α⊥
+		C[:] = ζtα⊥*(cholfact!(α⊥'Ω*α⊥)\(ζtα⊥'))
+		# D[:] = S11
+		E[:] = S20*(Ω\obj.α)*ρ' - S21*(obj.τ⊥*δ*obj.α' + obj.τ*obj.ζt)*(Ω\obj.α)*ρ' + S10*α⊥*(cholfact!(α⊥'Ω*α⊥)\(ζtα⊥'))
 		ABCD[:] = kron(A,B) + kron(C,D)
-		φ_τ[:] 	= (ABCD*obj.Hτ)\(E - ABCD*obj.hτ)
+		φ_τ[:] 	= (obj.Hτ'ABCD*obj.Hτ)\(obj.Hτ'*(E - ABCD*obj.hτ))
 		obj.τ[:] = obj.Hτ*φ_τ + obj.hτ
+		if obj.verbose
+			println("\nτ:\n", obj.τ)
+			println("ll:", loglikelihood(obj))
+		end
 		# obj.τ[:] = obj.τ/real(sqrtm(obj.τ'S22*obj.τ))
 		# obj.τ[:] = full(qrfact!(obj.τ)[:Q])
 		# obj.τ[:] = obj.τ/sqrtm(Hermitian(obj.τ'S11*obj.τ))
@@ -442,7 +358,7 @@ function ranktestPvaluesBootstrap(obj::CivecmI2, testvalues::Matrix, reps::Int64
 end
 
 function residuals(obj::CivecmI2)
-    res = obj.R0 - obj.R2*obj.τ*obj.ρδ[1:obj.rankI1 + obj.rankI2,:]*obj.α' - obj.R1*null(obj.τ')*obj.ρδ[obj.rankI1 + obj.rankI2 + 1:end,:]*obj.α' - obj.R1*obj.τ*obj.ζt
+    res = obj.R0 - obj.R2*obj.τ*ρ(obj)*obj.α' - obj.R1*obj.τ⊥*δ(obj)*obj.α' - obj.R1*obj.τ*obj.ζt
     return res
 end
 
@@ -450,7 +366,7 @@ function show(io::IO, obj::CivecmI2)
 	println("β':")
 	println(β(obj)')
 	println("τ⊥δ:")
-	println(null(τ(obj)')*δ(obj))
+	println(obj.τ⊥*δ(obj)) #'
 	println("τ':")
 	println(τ(obj)')	
 end

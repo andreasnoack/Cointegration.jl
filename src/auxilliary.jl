@@ -77,9 +77,9 @@ function rrr!(Y::Matrix, X::Matrix)
 	iT, iX = size(X)
 	iY = size(Y, 2)
 	if iX == 0 return zeros(iY,0), zeros(0), zeros(iX, 0) end
-	svdX = svdfact!(X, true)
-	svdY = svdfact!(Y, true)
-	svdZ = svdfact!(svdX[:U]'svdY[:U], true)
+	svdX = svdfact!(X)
+	svdY = svdfact!(Y)
+	svdZ = svdfact!(svdX[:U]'svdY[:U])
 	Sm1 = zeros(iX)
 	index = svdX[:S] .> 10e-9*maximum(X)
 	Sm1[index] = 1 ./ svdX[:S][index]
@@ -108,7 +108,7 @@ function student!(X::Matrix)
 	return X
 end
 
-function switch(Y::Matrix, X::Matrix, A::Matrix, B::Matrix, Ω::Matrix, H=eye(prod(size(A))), h = zeros(prod(size(A))); maxiter = 1000, xtol = sqrt(eps()))
+function switch!(Y::Matrix, X::Matrix, A::Matrix, B::Matrix, Ω::Matrix, H=eye(prod(size(A))), h = zeros(prod(size(A))); maxiter = 1000, xtol = sqrt(eps()))
 	# Solve the reduced rank problem Y=XAB'+ε under the restriction vec(A) = Hφ + h by a switching algorithm
 	m, ny = size(Y)
 	nx = size(X, 2)
@@ -120,9 +120,9 @@ function switch(Y::Matrix, X::Matrix, A::Matrix, B::Matrix, Ω::Matrix, H=eye(pr
 	for i = 1:maxiter
 		ΩB = Ω\B
 		BΩBSxx = kron(B'ΩB, Sxx)
-		φ = (H'*BΩBSxx*H)\(H'*(vec(Sxy*ΩB) - BΩBSxx*h))
+		φ = qrpfact!(H'*BΩBSxx*H)\(H'*(vec(Sxy*ΩB) - BΩBSxx*h))
 		A[:] = H*φ + h
-		B[:] = (A'Sxx*A)\(A'Sxy)
+		B[:] = ((A'Sxx*A)\(A'Sxy))'
 		Ω[:] = Base.LinAlg.syrk_wrapper('T', Y - X*A*B')/m
 		crit0 = crit1
 		crit1 = logdet(cholfact(Ω))
