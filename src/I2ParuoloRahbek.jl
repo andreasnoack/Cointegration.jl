@@ -247,6 +247,11 @@ function estimateτSwitch(obj::CivecmI2)
 			obj.convCount = j
 			break 
 		end
+		if isnan(ll)
+			warn("nans in loglikehood. Aborting!")
+			obj.convCount = obj.maxiter
+			break
+		end
 		ll0 = ll
 		# LinAlg.LAPACK.potrf!('U', Ω.UL)
 		α⊥[:] = null(obj.α')[:,p - 1:obj.rankI1]
