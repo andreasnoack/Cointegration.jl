@@ -254,7 +254,7 @@ function estimateτSwitch(obj::CivecmI2)
 		end
 		ll0 = ll
 		# LinAlg.LAPACK.potrf!('U', Ω.UL)
-		α⊥[:] = null(obj.α')[:,p - 1:obj.rankI1]
+		α⊥[:] = null(obj.α')[:,1:p-obj.rankI1]
 		A[:] = ρ*obj.α'*(Ω\obj.α)*ρ'
 		# B[:] = S22
 		ζtα⊥[:] = obj.ζt*α⊥
