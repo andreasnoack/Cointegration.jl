@@ -10,6 +10,7 @@ type CivecmI1 <: AbstractCivecm
 	hβ::Vector
 	llConvCrit::Float64
 	maxiter::Int64
+	verbose::Bool
 	Z0::Matrix{Float64}
 	Z1::Matrix{Float64}
 	Z2::Matrix{Float64}
@@ -33,6 +34,7 @@ function civecmI1(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 				   zeros(p1*rank), 
 				   1.0e-8, 
 				   5000, 
+				   false,
 				   Array(Float64, iT, p),
 				   Array(Float64, iT, p1),
 				   Array(Float64, iT, (lags-1)*p + lags*pexo),
@@ -98,6 +100,7 @@ copy(obj::CivecmI1) = CivecmI1(copy(obj.endogenous),
 							   copy(obj.hβ),
 							   obj.llConvCrit,
 							   obj.maxiter,
+							   obj.verbose,
 							   copy(obj.Z0),
 							   copy(obj.Z1),
 							   copy(obj.Z2),
@@ -173,6 +176,7 @@ function estimateSwitch(obj::CivecmI1)
 		γ = qrpfact!(obj.Hα'kron(OmegaInv, obj.β'S11*obj.β)*obj.Hα)\(obj.Hα'vec(obj.β'S10*OmegaInv))
 		obj.α = reshape(obj.Hα*γ, size(obj.α, 2), size(obj.α, 1))'
 		ll1 = loglikelihood(obj)
+		if obj.verbose @printf("log-likelihood: %f\n", ll1) end
 		if abs(ll1 - ll0) < obj.llConvCrit break end
 		ll0 = ll1
 	end
