@@ -262,7 +262,7 @@ function estimateτSwitch(obj::CivecmI2)
 		# D[:] = S11
 		E[:] = S20*(Ω\obj.α)*ρ' - S21*(obj.τ⊥*δ*obj.α' + obj.τ*obj.ζt)*(Ω\obj.α)*ρ' + S10*α⊥*(cholfact!(α⊥'Ω*α⊥)\(ζtα⊥'))
 		ABCD[:] = kron(A,B) + kron(C,D)
-		φ_τ[:] 	= qrpfact!(obj.Hτ'ABCD*obj.Hτ)\(obj.Hτ'*(E - ABCD*obj.hτ))
+		φ_τ[:] 	= qrfact!(obj.Hτ'ABCD*obj.Hτ, pivot=true)\(obj.Hτ'*(E - ABCD*obj.hτ))
 		obj.τ[:] = obj.Hτ*φ_τ + obj.hτ
 		if obj.verbose
 			println("\nτ:\n", obj.τ)

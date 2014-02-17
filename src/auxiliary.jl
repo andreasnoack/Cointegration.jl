@@ -17,7 +17,7 @@ function gls(Y::Matrix, X::Matrix, H::Matrix, K::SparseMatrixCSC, k::Vector, Ome
 	end
 	lhs = K'kron(H' / Omega * H, Sxx) * K
 	rhs = K'reshape(Sxy / Omega * H - Sxx * G * H' / Omega * H, px * r)
-	return reshape(K * (qrpfact!(lhs) \ rhs) + k, px, r)
+	return reshape(K * (qrfact!(lhs,pivot=true) \ rhs) + k, px, r)
 end
 
 function lagmatrix(A::Matrix, lags::AbstractArray{Int64, 1})
@@ -35,7 +35,7 @@ function lagmatrix(A::Matrix, lags::AbstractArray{Int64, 1})
 end
 
 function mreg(Y::VecOrMat, X::Matrix)
-	coef = qrpfact!(X'X)\(X'Y)
+	coef = qrfact!(X'X,pivot=true)\(X'Y)
 	residuals = Y - X*coef
 	(coef, residuals)
 end
@@ -120,9 +120,9 @@ function switch!(Y::Matrix, X::Matrix, A::Matrix, B::Matrix, Ω::Matrix, H=eye(p
 	for i = 1:maxiter
 		ΩB = Ω\B
 		BΩBSxx = kron(B'ΩB, Sxx)
-		φ = qrpfact!(H'*BΩBSxx*H)\(H'*(vec(Sxy*ΩB) - BΩBSxx*h))
+		φ = qrfact!(H'*BΩBSxx*H,pivot=true)\(H'*(vec(Sxy*ΩB) - BΩBSxx*h))
 		A[:] = H*φ + h
-		B[:] = (qrpfact!(A'Sxx*A)\(A'Sxy))'
+		B[:] = (qrfact!(A'Sxx*A,pivot=true)\(A'Sxy))'
 		Ω[:] = Base.LinAlg.syrk_wrapper('T', Y - X*A*B')/m
 		crit0 = crit1
 		crit1 = logdet(cholfact(Ω))
@@ -134,19 +134,19 @@ end
 
 # Simulation of rank test
 function fS(dX::Matrix{Float64}, Y::Matrix{Float64}, dZ::Matrix{Float64})
-	A = dX[2:,:]::Matrix{Float64}
+	A = dX[2:end,:]::Matrix{Float64}
 	B = Y[1:size(Y, 1) - 1,:]::Matrix{Float64}
-	C = dZ[2:,:]::Matrix{Float64}
+	C = dZ[2:end,:]::Matrix{Float64}
 	return (A'B)*(cholfact!(B'B)\(B'C))
 end
 
 function I2TraceSimulate(eps::Matrix{Float64}, s::Int64, exo::Matrix{Float64})	
 	iT 	= size(eps, 1)
 	w 	= cumsum(eps) / sqrt(iT)
-	w2i = cumsum(w[:,s + 1:]) / iT
+	w2i = cumsum(w[:,s+1:end]) / iT
 
 	m1 	= [w[:,1:s] w2i exo]
-	m2 	= [w[:,s + 1:] diff([zeros(1,size(exo, 2)); exo])]
+	m2 	= [w[:,s+1:end] diff([zeros(1,size(exo, 2)); exo])]
 
 	if size(m2, 2) > 0
 		tmpCoef = (m2'm2) \ (m2'm1)
@@ -157,7 +157,7 @@ function I2TraceSimulate(eps::Matrix{Float64}, s::Int64, exo::Matrix{Float64})
 	epsOrth 	= eps / chol(eps'eps / iT)
 	tmp1 		= eigvals(fS(epsOrth, g, epsOrth) / iT)
 	if size(eps, 2) > s
-		tmp2 	= eigvals(fS(epsOrth[:,s + 1:], m2, epsOrth[:,s + 1:]) / iT)
+		tmp2 	= eigvals(fS(epsOrth[:,s+1:end], m2, epsOrth[:,s+1:end]) / iT)
 	else
 		tmp2 	= [0.0]
 	end
