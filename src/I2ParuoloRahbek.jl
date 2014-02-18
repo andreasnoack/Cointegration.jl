@@ -169,6 +169,9 @@ function estimate(obj::CivecmI2)
 end
 
 function estimateτSwitch(obj::CivecmI2)
+	# Timer
+	tt = time()
+
 	# Dimentions
 	p = size(obj.R0, 2)
 	iT, p1 = size(obj.R2)
@@ -181,6 +184,9 @@ function estimateτSwitch(obj::CivecmI2)
 	S21 = obj.R2'obj.R1/iT
 	S22 = obj.R2'obj.R2/iT
 
+	# Conditioning estimate (to summarize error magnitude during calculations)
+	condS = cond(Base.LinAlg.syrk_wrapper('T', [obj.R2 obj.R1]))
+
 	# Memory allocation
 	Rτ 		= Array(Float64, iT, p1)
 	R1τ 	= Array(Float64, iT, rs)
@@ -188,14 +194,13 @@ function estimateτSwitch(obj::CivecmI2)
 	mX 		= Array(Float64, iT, p1)
 	workY 	= Array(Float64, rs, p)
 	mY 		= Array(Float64, iT, p)
-	α⊥ 	= Array(Float64, p, p - obj.rankI1)
+	α⊥ 		= Array(Float64, p, p - obj.rankI1)
 	workRRR = Array(Float64, obj.rankI1)
 	ρ 		= sub(obj.ρδ, 1:rs, 1:obj.rankI1)
 	ρort 	= Array(Float64, rs, rs - obj.rankI1)
 	δ 		= sub(obj.ρδ, rs+1:p1, 1:obj.rankI1)
 	φ_ρδ 	= Array(Float64, size(obj.Hρδ, 2), obj.rankI1)
 	φ_τ 	= Array(Float64, size(obj.Hτ, 2))
-	ζtα⊥ = Array(Float64, rs, p - obj.rankI1)
 	res = Array(Float64, iT, p)
 	Ω = eye(p)
 	A = Array(Float64, rs, rs)
@@ -216,7 +221,7 @@ function estimateτSwitch(obj::CivecmI2)
 	j = 1
 	for j = 1:obj.maxiter
 		if obj.verbose
-			println("\nIteration:", j)
+			time() - tt > 1 && println("\nIteration:", j)
 		end
 		obj.τ⊥[:] = null(obj.τ')[:,1:p1 - obj.rankI1 - obj.rankI2]
 		Rτ[:,1:rs] = obj.R2*obj.τ
@@ -230,20 +235,29 @@ function estimateτSwitch(obj::CivecmI2)
 			# obj.ρδ[:] = obj.Hρδ*φ_ρδ
 			obj.α *= Diagonal(workRRR)
 			obj.ζt[:], res[:] = mreg(obj.R0 - Rτ*obj.ρδ*obj.α', R1τ)
-			Ω[:] = res'res/iT
+			Ω = res'res/iT
 			if obj.verbose
-				println("\nτ:\n", obj.τ)
-				println("ll:", loglikelihood(obj))
+				# if time() - tt > 1
+					# println("\nτ:\n", obj.τ)
+					println("ll:", loglikelihood(obj))
+				# end
 			end
-		end
-		switch!(mY, mX, obj.ρδ, obj.α, Ω, obj.Hρδ, obj.hρδ, maxiter = obj.maxiter, xtol = obj.llConvCrit)
-		if obj.verbose
-			println("\nτ:\n", obj.τ)
-			println("ll:", loglikelihood(obj))
+		else
+			switch!(mY, mX, obj.ρδ, obj.α, Ω, obj.Hρδ, obj.hρδ, maxiter = obj.maxiter, xtol = obj.llConvCrit)
+			obj.ζt = R1τ\(obj.R0 - Rτ*obj.ρδ*obj.α')
 		end
 		ll = loglikelihood(obj)
-		if abs(ll - ll0) < obj.llConvCrit 
-			# @printf("Convergence in %d iterations.\n", j - 1)
+		if obj.verbose
+			if time() - tt > 1
+				# println("\nτ:\n", obj.τ)
+				println("Right after switching given τ\nll:", ll)
+			end
+		end
+		if ll - ll0 < -obj.llConvCrit*condS
+			println("Old likelihood: $(ll0)\nNew likelihood: $(ll)\nIteration: $(j)")
+			error("Likelihood cannot decrease")
+		elseif abs(ll - ll0) < obj.llConvCrit # Use abs to avoid spurious stops due to noise
+			obj.verbose && @printf("Convergence in %d iterations.\n", j - 1)
 			obj.convCount = j
 			break 
 		end
@@ -253,24 +267,41 @@ function estimateτSwitch(obj::CivecmI2)
 			break
 		end
 		ll0 = ll
-		# LinAlg.LAPACK.potrf!('U', Ω.UL)
-		α⊥[:] = null(obj.α')[:,1:p-obj.rankI1]
-		A[:] = ρ*obj.α'*(Ω\obj.α)*ρ'
+		α⊥ = null(obj.α')[:,1:p-obj.rankI1]
+		A = ρ*obj.α'*(Ω\obj.α)*ρ'
 		# B[:] = S22
-		ζtα⊥[:] = obj.ζt*α⊥
-		C[:] = ζtα⊥*(cholfact!(α⊥'Ω*α⊥)\(ζtα⊥'))
+		κ = obj.ζt*α⊥
+		C = κ*(cholfact!(α⊥'Ω*α⊥)\κ')
 		# D[:] = S11
-		E[:] = S20*(Ω\obj.α)*ρ' - S21*(obj.τ⊥*δ*obj.α' + obj.τ*obj.ζt)*(Ω\obj.α)*ρ' + S10*α⊥*(cholfact!(α⊥'Ω*α⊥)\(ζtα⊥'))
-		ABCD[:] = kron(A,B) + kron(C,D)
+		Ωα = Ω\obj.α
+		ψ = obj.τ⊥*δ + obj.τ*obj.ζt*(Ωα/(obj.α'*Ωα))
+		E[:] = S20*Ωα*ρ' - S21*ψ*obj.α'Ωα*ρ' + S10*α⊥*(cholfact!(α⊥'Ω*α⊥)\κ')
+		ABCD = kron(A,B) + kron(C,D)
 		φ_τ[:] 	= qrfact!(obj.Hτ'ABCD*obj.Hτ, pivot=true)\(obj.Hτ'*(E - ABCD*obj.hτ))
 		obj.τ[:] = obj.Hτ*φ_τ + obj.hτ
+
+		myres = obj.R0 - obj.R2*obj.τ*ρ*obj.α' - obj.R1*(ψ*obj.α' + obj.τ*κ*((α⊥'Ω*α⊥)\α⊥'Ω))
+		ll = -0.5*(size(obj.endogenous, 1) - obj.lags)*logdet(cholfact!(myres'myres/size(myres,1)))
 		if obj.verbose
-			println("\nτ:\n", obj.τ)
-			println("ll:", loglikelihood(obj))
+			if time() - tt > 1
+				# println("\nτ:\n", obj.τ)
+				println("Rigth after estimation of τ\nll:", ll)
+			end
 		end
-		# obj.τ[:] = obj.τ/real(sqrtm(obj.τ'S22*obj.τ))
-		# obj.τ[:] = full(qrfact!(obj.τ)[:Q])
-		# obj.τ[:] = obj.τ/sqrtm(Hermitian(obj.τ'S11*obj.τ))
+		if ll - ll0 < -obj.llConvCrit*condS
+			println("Old likelihood: $(ll0)\nNew likelihood: $(ll)\nIteration: $(j)")
+			error("Likelihood cannot decrease")
+		elseif abs(ll - ll0) < obj.llConvCrit # Use abs to avoid spurious stops due to noise
+			obj.verbose && @printf("Convergence in %d iterations.\n", j - 1)
+			obj.convCount = j
+			break 
+		end
+		if isnan(ll)
+			warn("nans in loglikehood. Aborting!")
+			obj.convCount = obj.maxiter
+			break
+		end
+		ll0 = ll
 	end
 	return obj
 end
@@ -301,6 +332,7 @@ function ranktest(obj::CivecmI2)
 	tmpTrace 	= zeros(ip, ip + 1)
 	for i = 0:ip - 1
 		for j = 0:ip - i
+			obj.verbose && println("r=$(i), s=$(j)")
 			tmpTrace[i + 1, i + j + 1] = 2 * (ll0 - loglikelihood(setrank(obj, i, j)))
 		end
 	end

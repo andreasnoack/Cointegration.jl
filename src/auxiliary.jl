@@ -118,15 +118,22 @@ function switch!(Y::Matrix, X::Matrix, A::Matrix, B::Matrix, Ω::Matrix, H=eye(p
 	crit0 = -realmax()
 	crit1 = crit0
 	for i = 1:maxiter
-		ΩB = Ω\B
+		ΩB = cholfact(Ω)\B
 		BΩBSxx = kron(B'ΩB, Sxx)
 		φ = qrfact!(H'*BΩBSxx*H,pivot=true)\(H'*(vec(Sxy*ΩB) - BΩBSxx*h))
 		A[:] = H*φ + h
+
 		B[:] = (qrfact!(A'Sxx*A,pivot=true)\(A'Sxy))'
+
 		Ω[:] = Base.LinAlg.syrk_wrapper('T', Y - X*A*B')/m
 		crit0 = crit1
-		crit1 = logdet(cholfact(Ω))
-		if abs(crit1 - crit0) < xtol break end
+		crit1 = -logdet(cholfact(Ω))
+		if crit1 - crit0 < -xtol
+			println("Old value: $(crit0)\nNew value: $(crit1)\nIteration :$(i)")
+			error("Convergence criterion cannot decrease")
+		elseif crit1 - crit0 < xtol 
+			break 
+		end
 	end
 	if i == maxiter warn("no convergence in $(i) iterations") end
 	return A, B, Ω, i
