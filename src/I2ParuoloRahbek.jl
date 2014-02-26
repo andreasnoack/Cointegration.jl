@@ -253,7 +253,7 @@ function estimateτSwitch(obj::CivecmI2)
 				println("Right after switching given τ\nll:", ll)
 			end
 		end
-		if ll - ll0 < -obj.llConvCrit*condS
+		if ll - ll0 < -obj.llConvCrit
 			println("Old likelihood: $(ll0)\nNew likelihood: $(ll)\nIteration: $(j)")
 			error("Likelihood cannot decrease")
 		elseif abs(ll - ll0) < obj.llConvCrit # Use abs to avoid spurious stops due to noise
@@ -268,16 +268,20 @@ function estimateτSwitch(obj::CivecmI2)
 		end
 		ll0 = ll
 		α⊥ = null(obj.α')[:,1:p-obj.rankI1]
-		A = ρ*obj.α'*(Ω\obj.α)*ρ'
+		# A = ρ*obj.α'*(Ω\obj.α)*ρ'
 		# B[:] = S22
 		κ = obj.ζt*α⊥
-		C = κ*(cholfact!(α⊥'Ω*α⊥)\κ')
+		# C = κ*(cholfact!(α⊥'Ω*α⊥)\κ')
 		# D[:] = S11
 		Ωα = Ω\obj.α
 		ψ = obj.τ⊥*δ + obj.τ*obj.ζt*(Ωα/(obj.α'*Ωα))
-		E[:] = S20*Ωα*ρ' - S21*ψ*obj.α'Ωα*ρ' + S10*α⊥*(cholfact!(α⊥'Ω*α⊥)\κ')
-		ABCD = kron(A,B) + kron(C,D)
-		φ_τ[:] 	= qrfact!(obj.Hτ'ABCD*obj.Hτ, pivot=true)\(obj.Hτ'*(E - ABCD*obj.hτ))
+		# E[:] = S20*Ωα*ρ' - S21*ψ*obj.α'Ωα*ρ' + S10*α⊥*(cholfact!(α⊥'Ω*α⊥)\κ')
+		# ABCD = kron(A,B) + kron(C,D)
+		# φ_τ[:] = qrfact!(obj.Hτ'ABCD*obj.Hτ, pivot=true)\(obj.Hτ'*(E - ABCD*obj.hτ))
+		sqrtΩ = sqrtm(Ω)
+		tmpX = kron(sqrtΩ\obj.α*ρ', obj.R2) + kron(pinv(sqrtΩ*α⊥)'κ', obj.R1)
+		φ_τ[:] = (tmpX*obj.Hτ)\(vec((obj.R0-obj.R1*ψ*obj.α')/sqrtΩ)-tmpX*obj.hτ)
+		# φ_τ[:] = (obj.Hτ'tmpX'tmpX*obj.Hτ)\(obj.Hτ'tmpX'*(vec((obj.R0-obj.R1*ψ*obj.α')/sqrtΩ)-tmpX*obj.hτ))
 		obj.τ[:] = obj.Hτ*φ_τ + obj.hτ
 
 		myres = obj.R0 - obj.R2*obj.τ*ρ*obj.α' - obj.R1*(ψ*obj.α' + obj.τ*κ*((α⊥'Ω*α⊥)\α⊥'Ω))
@@ -286,9 +290,10 @@ function estimateτSwitch(obj::CivecmI2)
 			if time() - tt > 1
 				# println("\nτ:\n", obj.τ)
 				println("Rigth after estimation of τ\nll:", ll)
+				tt = time()
 			end
 		end
-		if ll - ll0 < -obj.llConvCrit*condS
+		if ll - ll0 < -obj.llConvCrit
 			println("Old likelihood: $(ll0)\nNew likelihood: $(ll)\nIteration: $(j)")
 			error("Likelihood cannot decrease")
 		elseif abs(ll - ll0) < obj.llConvCrit # Use abs to avoid spurious stops due to noise

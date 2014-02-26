@@ -35,7 +35,7 @@ function lagmatrix(A::Matrix, lags::AbstractArray{Int64, 1})
 end
 
 function mreg(Y::VecOrMat, X::Matrix)
-	coef = qrfact!(X'X,pivot=true)\(X'Y)
+	coef = qrfact(X,pivot=true)\Y
 	residuals = Y - X*coef
 	(coef, residuals)
 end
@@ -112,18 +112,16 @@ function switch!(Y::Matrix, X::Matrix, A::Matrix, B::Matrix, Ω::Matrix, H=eye(p
 	# Solve the reduced rank problem Y=XAB'+ε under the restriction vec(A) = Hφ + h by a switching algorithm
 	m, ny = size(Y)
 	nx = size(X, 2)
-	Sxx = X'X/m
-	Sxy = X'Y/m
 	i = 1
 	crit0 = -realmax()
 	crit1 = crit0
 	for i = 1:maxiter
-		ΩB = cholfact(Ω)\B
-		BΩBSxx = kron(B'ΩB, Sxx)
-		φ = qrfact!(H'*BΩBSxx*H,pivot=true)\(H'*(vec(Sxy*ΩB) - BΩBSxx*h))
+		sqrtΩ = sqrtm(Ω)
+		tmpX = kron(sqrtΩ\B,X)
+		φ = (tmpX*H)\(vec(Y/sqrtΩ) - tmpX*h)
 		A[:] = H*φ + h
 
-		B[:] = (qrfact!(A'Sxx*A,pivot=true)\(A'Sxy))'
+		B[:] = ((X*A)\Y)'
 
 		Ω[:] = Base.LinAlg.syrk_wrapper('T', Y - X*A*B')/m
 		crit0 = crit1
@@ -138,6 +136,37 @@ function switch!(Y::Matrix, X::Matrix, A::Matrix, B::Matrix, Ω::Matrix, H=eye(p
 	if i == maxiter warn("no convergence in $(i) iterations") end
 	return A, B, Ω, i
 end
+
+# function switch!(Y::Matrix, X::Matrix, A::Matrix, B::Matrix, Ω::Matrix, H=eye(prod(size(A))), h = zeros(prod(size(A))); maxiter = 1000, xtol = sqrt(eps()))
+# 	# Solve the reduced rank problem Y=XAB'+ε under the restriction vec(A) = Hφ + h by a switching algorithm
+# 	m, ny = size(Y)
+# 	nx = size(X, 2)
+# 	Sxx = X'X/m
+# 	Sxy = X'Y/m
+# 	i = 1
+# 	crit0 = -realmax()
+# 	crit1 = crit0
+# 	for i = 1:maxiter
+# 		ΩB = cholfact(Ω)\B
+# 		BΩBSxx = kron(B'ΩB, Sxx)
+# 		φ = qrfact!(H'*BΩBSxx*H,pivot=true)\(H'*(vec(Sxy*ΩB) - BΩBSxx*h))
+# 		A[:] = H*φ + h
+
+# 		B[:] = (qrfact!(A'Sxx*A,pivot=true)\(A'Sxy))'
+
+# 		Ω[:] = Base.LinAlg.syrk_wrapper('T', Y - X*A*B')/m
+# 		crit0 = crit1
+# 		crit1 = -logdet(cholfact(Ω))
+# 		if crit1 - crit0 < -xtol
+# 			println("Old value: $(crit0)\nNew value: $(crit1)\nIteration :$(i)")
+# 			error("Convergence criterion cannot decrease")
+# 		elseif crit1 - crit0 < xtol 
+# 			break 
+# 		end
+# 	end
+# 	if i == maxiter warn("no convergence in $(i) iterations") end
+# 	return A, B, Ω, i
+# end
 
 # Simulation of rank test
 function fS(dX::Matrix{Float64}, Y::Matrix{Float64}, dZ::Matrix{Float64})
