@@ -12,23 +12,7 @@ function residualvariance(obj::AbstractCivecm)
     return mOmega
 end
 
-type NormalityTest
-	univariate::Vector{Float64}
-	multivariate::Float64
-end
-
 normalitytest(obj::AbstractCivecm) = normalitytest(residuals(obj))
-
-function show(io::IO, obj::NormalityTest)
-	println("Univarite tests:")
-	println("Test values   df   p-values")
-	for t in obj.univariate
-		@printf("%11.2f%5d%11.2f\n", t, 2, ccdf(Chisq(2), t))
-	end
-	println("\nMultivariate test:")
-	println("Test values   df   p-values")
-	@printf("%11.2f%5d%11.2f\n", obj.multivariate, 2*length(obj.univariate), ccdf(Chisq(2*length(obj.univariate)), obj.multivariate))
-end
 
 ## LR test
 type LRTest{T<:AbstractCivecm}

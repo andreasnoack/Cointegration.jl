@@ -40,11 +40,27 @@ function mreg(Y::VecOrMat, X::Matrix)
 	(coef, residuals)
 end
 
-function normalitytest(res::StridedVecOrMat)
+## Normality test
+type NormalityTest
+	univariate::Vector{Float64}
+	multivariate::Float64
+end
+
+function show(io::IO, obj::NormalityTest)
+	println("Univarite tests:")
+	println("Test values   df   p-values")
+	for t in obj.univariate
+		@printf("%11.2f%5d%11.2f\n", t, 2, ccdf(Chisq(2), t))
+	end
+	println("\nMultivariate test:")
+	println("Test values   df   p-values")
+	@printf("%11.2f%5d%11.2f\n", obj.multivariate, 2*length(obj.univariate), ccdf(Chisq(2*length(obj.univariate)), obj.multivariate))
+end
+
+function normalitytest(res::AbstractMatrix)
 	n = size(res, 1)
-	y = res
-	y = (y .- mean(y))
-	y = isa(y, Vector) ? y/sqrt(dot(y,y)/n) : y/sqrtm(y'y/n)
+	y = res .- mean(res,1)
+	y = y/sqrtm(y'y/n)
 	rtb1 = mean(y.^3, 1)
 	b2 = mean(y.^4, 1)
 	z1 = Float64[normalitytestz1(n, t) for t in rtb1]
@@ -53,8 +69,8 @@ function normalitytest(res::StridedVecOrMat)
 end
 
 function normalitytestz1(n::Integer, rtb1::Real)
-	# Skewness
-	β = (3*(n*(n + 27) - 70)*(n + 1)*(n + 3))/((n - 2)*(n + 5)*(n + 7)*(n + 9))
+	# Skewness correction
+	β = 3*(n*(n + 27) - 70)*(n + 1)*(n + 3)/((n - 2)*(n + 5)*(n + 7)*(n + 9))
 	ω2 = -1 + sqrt(2*(β - 1))
 	δ = 1/sqrt(0.5log(ω2))
 	y = rtb1*sqrt(((ω2 - 1)/2)*((n + 1)*(n + 3))/(6*(n - 2)))
@@ -62,7 +78,7 @@ function normalitytestz1(n::Integer, rtb1::Real)
 end
 
 function normalitytestz2(n::Integer, b1::Real, b2::Real)
-	# Kurtosis
+	# Kurtosis correction
 	δ = (n - 3)*(n + 1)*(n*(n + 15) - 4)
 	a = ((n - 2)*(n + 5)*(n + 7)*(n*(n + 27) - 70))/(6δ)
 	c = ((n - 7)*(n + 5)*(n + 7)*(n*(n + 2) - 5))/(6δ)
@@ -72,7 +88,8 @@ function normalitytestz2(n::Integer, b1::Real, b2::Real)
 	return (cbrt(χ/(2α)) - 1 + 1/(9α))*sqrt(9α)
 end
 
-# Note. This is different from the difinition used in the literature following Johansen (and T.W. Anderson). Here I define the reduced rank regression decomposition of PI such that PI=α*diag(σ)*β'
+##Reduced rank regression
+###Note. This is different from the difinition used in the literature following Johansen (and T.W. Anderson). Here I define the reduced rank regression decomposition of PI such that PI=α*diag(σ)*β'
 function rrr!(Y::Matrix, X::Matrix)
 	iT, iX = size(X)
 	iY = size(Y, 2)
@@ -123,7 +140,7 @@ function switch!(Y::Matrix, X::Matrix, A::Matrix, B::Matrix, Ω::Matrix, H=eye(p
 
 		B[:] = ((X*A)\Y)'
 
-		Ω[:] = Base.LinAlg.syrk_wrapper('T', Y - X*A*B')/m
+		Ω[:] = Base.LinAlg.syrk_wrapper!('T', Y - X*A*B')/m
 		crit0 = crit1
 		crit1 = -logdet(cholfact(Ω))
 		if crit1 - crit0 < -xtol
@@ -154,7 +171,7 @@ end
 
 # 		B[:] = (qrfact!(A'Sxx*A,pivot=true)\(A'Sxy))'
 
-# 		Ω[:] = Base.LinAlg.syrk_wrapper('T', Y - X*A*B')/m
+# 		Ω[:] = Base.LinAlg.syrk_wrapper!('T', Y - X*A*B')/m
 # 		crit0 = crit1
 # 		crit1 = -logdet(cholfact(Ω))
 # 		if crit1 - crit0 < -xtol

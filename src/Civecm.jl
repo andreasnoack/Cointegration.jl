@@ -1,10 +1,11 @@
 # Min Civecm kode
 using StatsBase
-# using Distributions
+using Distributions
 
 module Civecm
+using Distributions
 
-import Base: convert, copy, eigfact, eigvals, show, LinAlg.syrk_wrapper
+import Base: convert, copy, eigfact, eigvals, show, LinAlg.syrk_wrapper!
 import StatsBase: loglikelihood, residuals
 export β, τ, ρ, δ, bootstrap, civecmI1, civecmI2, civecmI2alt, companion, estimate, lrtest, ranktest, setrank, show, simulate, VAR
 
