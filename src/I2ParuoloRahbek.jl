@@ -32,12 +32,12 @@ function civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 	iT = ss - lags
 	pexo = size(exogenous, 2)
 	p1 = p + pexo
-	obj = CivecmI2(endogenous, 
+	obj = CivecmI2(endogenous,
 					exogenous,
 					lags,
 					rankI1,
 					rankI2,
-					Array(Float64, p, rankI1), 
+					Array(Float64, p, rankI1),
 					Array(Float64, p1, rankI1),
 					# eye(p1*rankI1)[:,[rankI1+1:rankI1+rankI2],[2rankI1+rankI2+1:p1]],
 					kron(eye(rankI1), [zeros(rankI1 + rankI2), ones(p1 - rankI1 - rankI2)]),
@@ -47,17 +47,17 @@ function civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 					zeros(p1*(rankI1 + rankI2)),
 					Array(Float64, p1, p1 - rankI1 - rankI2),
 					Array(Float64, rankI1 + rankI2, p),
-					1.0e-8, 
-					5000, 
+					1.0e-8,
+					5000,
 					0,
 					"ParuoloRahbek",
 					false,
-					Array(Float64, iT, p), 
+					Array(Float64, iT, p),
 					Array(Float64, iT, p1),
 					Array(Float64, iT, p1),
 					Array(Float64, iT, p*(lags - 2) + pexo*(lags - 1)),
 					Array(Float64, iT, p),
-					Array(Float64, iT, p1), 
+					Array(Float64, iT, p1),
 					Array(Float64, iT, p1))
 	auxilliaryMatrices(obj)
 	# estimate(obj)
@@ -66,6 +66,8 @@ end
 civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags::Int64) = civecmI2(endogenous, exogenous, lags, size(endogenous, 2), 0)
 civecmI2(endogenous::Matrix{Float64}, lags::Int64) = civecmI2(endogenous, zeros(size(endogenous, 1), 0), lags)
 civecmI2(endogenous::Matrix{Float64}, exogenous::Range1, lags::Int64) = civecmI2(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
+
+endogenous(obj::CivecmI2) = obj.endogenous
 
 function auxilliaryMatrices(obj::CivecmI2)
 	iT, p = size(obj.Z0)
@@ -98,7 +100,7 @@ function auxilliaryMatrices(obj::CivecmI2)
 			end
 		end
 	end
-	if size(obj.Z3, 2) > 0
+	if size(obj.Z3, 2) > 0 && norm(obj.Z3) > size(obj.Z3, 1)*eps()
 		obj.R0[:] = mreg(obj.Z0, obj.Z3)[2]
 		obj.R1[:] = mreg(obj.Z1, obj.Z3)[2]
 		obj.R2[:] = mreg(obj.Z2, obj.Z3)[2]
@@ -120,9 +122,9 @@ copy(obj::CivecmI2) = CivecmI2(copy(obj.endogenous),
 							   copy(obj.Hρδ),
 							   copy(obj.hρδ),
 							   copy(obj.τ),
-							   copy(obj.Hτ), 
+							   copy(obj.Hτ),
 							   copy(obj.hτ),
-							   copy(obj.τ⊥),							   
+							   copy(obj.τ⊥),
 							   copy(obj.ζt),
 							   obj.llConvCrit,
 							   obj.maxiter,
@@ -154,14 +156,14 @@ function setrank(obj::CivecmI2, rankI1::Int64, rankI2::Int64)
 		obj.τ 	= Array(Float64, p1, rankI1 + rankI2)
 		obj.Hτ 	= eye(p1*(rankI1 + rankI2))
 		obj.hτ 	= zeros(p1*(rankI1 + rankI2))
-		obj.τ⊥ 	= Array(Float64, p1, p1 - rankI1 - rankI2)		
+		obj.τ⊥ 	= Array(Float64, p1, p1 - rankI1 - rankI2)
 		obj.ζt 	= Array(Float64, rankI1 + rankI2, p)
 	end
 	return estimate(obj)
 end
 
 function estimate(obj::CivecmI2)
-	if obj.method == "ParuoloRahbek" 
+	if obj.method == "ParuoloRahbek"
 		# if obj.rankI1 == 0 || obj.rankI2 == size(obj.R0,2) - obj.rankI1 return estimate2step(obj) end
 		return estimateτSwitch(obj)
 	end
@@ -185,7 +187,7 @@ function estimateτSwitch(obj::CivecmI2)
 	S22 = obj.R2'obj.R2/iT
 
 	# Conditioning estimate (to summarize error magnitude during calculations)
-	condS = cond(Base.LinAlg.syrk_wrapper('T', [obj.R2 obj.R1]))
+	condS = cond([obj.R2 obj.R1] |> t -> t't)
 
 	# Memory allocation
 	Rτ 		= Array(Float64, iT, p1)
@@ -259,7 +261,7 @@ function estimateτSwitch(obj::CivecmI2)
 		elseif abs(ll - ll0) < obj.llConvCrit # Use abs to avoid spurious stops due to noise
 			obj.verbose && @printf("Convergence in %d iterations.\n", j - 1)
 			obj.convCount = j
-			break 
+			break
 		end
 		if isnan(ll)
 			warn("nans in loglikehood. Aborting!")
@@ -285,7 +287,7 @@ function estimateτSwitch(obj::CivecmI2)
 		obj.τ[:] = obj.Hτ*φ_τ + obj.hτ
 
 		myres = obj.R0 - obj.R2*obj.τ*ρ*obj.α' - obj.R1*(ψ*obj.α' + obj.τ*κ*((α⊥'Ω*α⊥)\α⊥'Ω))
-		ll = -0.5*(size(obj.endogenous, 1) - obj.lags)*logdet(cholfact!(myres'myres/size(myres,1)))
+		ll = loglikelihood(myres)
 		if obj.verbose
 			if time() - tt > 1
 				# println("\nτ:\n", obj.τ)
@@ -299,7 +301,7 @@ function estimateτSwitch(obj::CivecmI2)
 		elseif abs(ll - ll0) < obj.llConvCrit # Use abs to avoid spurious stops due to noise
 			obj.verbose && @printf("Convergence in %d iterations.\n", j - 1)
 			obj.convCount = j
-			break 
+			break
 		end
 		if isnan(ll)
 			warn("nans in loglikehood. Aborting!")
@@ -410,7 +412,7 @@ function show(io::IO, obj::CivecmI2)
 	println("τ⊥δ:")
 	println(obj.τ⊥*δ(obj)) #'
 	println("τ':")
-	println(τ(obj)')	
+	println(τ(obj)')
 end
 
 # Coefficients

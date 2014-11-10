@@ -2,7 +2,9 @@ abstract AbstractCivecm
 
 eigvals(obj::AbstractCivecm) = eigvals(convert(VAR, obj))
 
-loglikelihood(obj::AbstractCivecm) = -0.5*(size(obj.endogenous, 1) - obj.lags)*logdet(cholfact!(residualvariance(obj)))
+loglikelihood(obj::AbstractCivecm) = (nobs = size(endogenous(obj), 1) - obj.lags; -0.5*nobs*(logdet(cholfact!(residualvariance(obj))) - size(endogenous(obj), 2)*(log(nobs) - 1 - log(2π))))
+# loglikelihood(A::StridedMatrix) = -0.5*size(A, 1)*(2sum(log(abs(diag(qrfact(A).factors)/sqrt(size(A,1))))) - size(A, 2)*(log(size(A, 1)) - 1 - log(2π)))
+loglikelihood(A::StridedMatrix) = -0.5*size(A, 1)*(logdet(cov(A, corrected = false, mean = 0)) - size(A, 2)*(log(size(A, 1)) - 1 - log(2π)))
 
 # aic(obj::Civecm) = 2*(npars(obj) - loglikelihood(obj))
 

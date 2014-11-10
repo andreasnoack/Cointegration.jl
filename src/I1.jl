@@ -23,22 +23,22 @@ function civecmI1(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 	pexo = size(exogenous, 2)
 	p1 = p + pexo
 	iT = ss - lags
-	obj = CivecmI1(endogenous, 
-				   exogenous, 
-				   lags, 
-				   Array(Float64, p, rank), 
+	obj = CivecmI1(endogenous,
+				   exogenous,
+				   lags,
+				   Array(Float64, p, rank),
 				   Array(Float64, p1, rank),
 				   Array(Float64, p, (lags - 1)*p + lags*pexo),
 				   eye(p*rank),
 				   eye(p1*rank),
-				   zeros(p1*rank), 
-				   1.0e-8, 
-				   5000, 
+				   zeros(p1*rank),
+				   1.0e-8,
+				   5000,
 				   false,
 				   Array(Float64, iT, p),
 				   Array(Float64, iT, p1),
 				   Array(Float64, iT, (lags-1)*p + lags*pexo),
-				   Array(Float64, iT, p), 
+				   Array(Float64, iT, p),
 				   Array(Float64, iT, p1))
 	auxilliaryMatrices(obj)
 	estimateEigen(obj)
@@ -47,6 +47,8 @@ end
 civecmI1(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags::Int64) = civecmI1(endogenous, exogenous, lags, size(endogenous, 2))
 civecmI1(endogenous::Matrix{Float64}, lags::Int64) = civecmI1(endogenous, zeros(size(endogenous, 1), 0), lags)
 civecmI1(endogenous::Matrix{Float64}, exogenous::Range1, lags::Int64) = civecmI1(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
+
+endogenous(obj::CivecmI1) = obj.endogenous
 
 β(obj::CivecmI1) = obj.β
 
@@ -112,7 +114,7 @@ function show(io::IO, obj::CivecmI1)
 	for i = 1:size(obj.α, 2)
 		@printf(" α(%d)", i)
 	end
-	println()	
+	println()
 	for i = 1:size(obj.R0, 2)
 		@printf("V%d:", i)
 		for j = 1:size(obj.α, 2)
@@ -205,7 +207,7 @@ residuals(obj::CivecmI1) = obj.R0 - obj.R1*obj.β*obj.α'
 
 # function simulate(obj::CivecmI1, innovations::Matrix{Float64})
 # 	X = similar(innovations)
-	
+
 # 	for i = 2:size(X, 1)
 # 		X[i,:] = X[i-1,:]*obj.β*obj.α' + X[i-1,:]
 # 		for j = 1:obj.lags - 1

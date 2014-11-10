@@ -140,14 +140,14 @@ function switch!(Y::Matrix, X::Matrix, A::Matrix, B::Matrix, Ω::Matrix, H=eye(p
 
 		B[:] = ((X*A)\Y)'
 
-		Ω[:] = Base.LinAlg.syrk_wrapper!('T', Y - X*A*B')/m
+		Base.LinAlg.copytri!(BLAS.syrk!('U', 'T', 1/m, Y - X*A*B', 0.0, Ω), 'U')
 		crit0 = crit1
 		crit1 = -logdet(cholfact(Ω))
 		if crit1 - crit0 < -xtol
-			println("Old value: $(crit0)\nNew value: $(crit1)\nIteration :$(i)")
+			println("Old value: $(crit0)\nNew value: $(crit1)\nIteration :$(i)");
 			error("Convergence criterion cannot decrease")
-		elseif crit1 - crit0 < xtol 
-			break 
+		elseif crit1 - crit0 < xtol
+			break
 		end
 	end
 	if i == maxiter warn("no convergence in $(i) iterations") end
@@ -177,8 +177,8 @@ end
 # 		if crit1 - crit0 < -xtol
 # 			println("Old value: $(crit0)\nNew value: $(crit1)\nIteration :$(i)")
 # 			error("Convergence criterion cannot decrease")
-# 		elseif crit1 - crit0 < xtol 
-# 			break 
+# 		elseif crit1 - crit0 < xtol
+# 			break
 # 		end
 # 	end
 # 	if i == maxiter warn("no convergence in $(i) iterations") end
@@ -193,7 +193,7 @@ function fS(dX::Matrix{Float64}, Y::Matrix{Float64}, dZ::Matrix{Float64})
 	return (A'B)*(cholfact!(B'B)\(B'C))
 end
 
-function I2TraceSimulate(eps::Matrix{Float64}, s::Int64, exo::Matrix{Float64})	
+function I2TraceSimulate(eps::Matrix{Float64}, s::Int64, exo::Matrix{Float64})
 	iT 	= size(eps, 1)
 	w 	= cumsum(eps) / sqrt(iT)
 	w2i = cumsum(w[:,s+1:end]) / iT
