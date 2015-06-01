@@ -40,7 +40,7 @@ function civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 					Array(Float64, p, rankI1),
 					Array(Float64, p1, rankI1),
 					# eye(p1*rankI1)[:,[rankI1+1:rankI1+rankI2],[2rankI1+rankI2+1:p1]],
-					kron(eye(rankI1), [zeros(rankI1 + rankI2), ones(p1 - rankI1 - rankI2)]),
+					kron(eye(rankI1), [zeros(rankI1 + rankI2); ones(p1 - rankI1 - rankI2)]),
 					vec([eye(rankI1 + rankI2, rankI1); zeros(p1 - rankI1 - rankI2, rankI1)]),
 					Array(Float64, p1, rankI1 + rankI2),
 					eye(p1*(rankI1 + rankI2)),
@@ -65,7 +65,7 @@ function civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 end
 civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags::Int64) = civecmI2(endogenous, exogenous, lags, size(endogenous, 2), 0)
 civecmI2(endogenous::Matrix{Float64}, lags::Int64) = civecmI2(endogenous, zeros(size(endogenous, 1), 0), lags)
-civecmI2(endogenous::Matrix{Float64}, exogenous::Range1, lags::Int64) = civecmI2(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
+civecmI2(endogenous::Matrix{Float64}, exogenous::UnitRange, lags::Int64) = civecmI2(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
 
 endogenous(obj::CivecmI2) = obj.endogenous
 
@@ -219,13 +219,13 @@ function estimateτSwitch(obj::CivecmI2)
 
 	# Algorithm
 	ll = -realmax()
-	ll0 = ll
+	ll0 = -realmax()
 	j = 1
 	for j = 1:obj.maxiter
 		if obj.verbose
 			time() - tt > 1 && println("\nIteration:", j)
 		end
-		obj.τ⊥[:] = null(obj.τ')[:,1:p1 - obj.rankI1 - obj.rankI2]
+		obj.τ⊥[:] = nullspace(obj.τ')[:,1:p1 - obj.rankI1 - obj.rankI2]
 		Rτ[:,1:rs] = obj.R2*obj.τ
 		Rτ[:,rs+1:end] = obj.R1*obj.τ⊥
 		R1τ[:] = obj.R1*obj.τ
@@ -248,7 +248,7 @@ function estimateτSwitch(obj::CivecmI2)
 			switch!(mY, mX, obj.ρδ, obj.α, Ω, obj.Hρδ, obj.hρδ, maxiter = obj.maxiter, xtol = obj.llConvCrit)
 			obj.ζt = R1τ\(obj.R0 - Rτ*obj.ρδ*obj.α')
 		end
-		ll = loglikelihood(obj)
+		# ll = loglikelihood(obj)
 		if obj.verbose
 			if time() - tt > 1
 				# println("\nτ:\n", obj.τ)
@@ -258,7 +258,7 @@ function estimateτSwitch(obj::CivecmI2)
 		if ll - ll0 < -obj.llConvCrit
 			println("Old likelihood: $(ll0)\nNew likelihood: $(ll)\nIteration: $(j)")
 			error("Likelihood cannot decrease")
-		elseif abs(ll - ll0) < obj.llConvCrit # Use abs to avoid spurious stops due to noise
+		elseif abs(ll - ll0) < obj.llConvCrit && j > 1 # Use abs to avoid spurious stops due to noise
 			obj.verbose && @printf("Convergence in %d iterations.\n", j - 1)
 			obj.convCount = j
 			break
@@ -269,7 +269,7 @@ function estimateτSwitch(obj::CivecmI2)
 			break
 		end
 		ll0 = ll
-		α⊥ = null(obj.α')[:,1:p-obj.rankI1]
+		α⊥ = nullspace(obj.α')[:,1:p-obj.rankI1]
 		# A = ρ*obj.α'*(Ω\obj.α)*ρ'
 		# B[:] = S22
 		κ = obj.ζt*α⊥
@@ -319,14 +319,14 @@ function estimate2step(obj)
 	obj.α[:], vals, β = rrr(Res0, Res1, obj.rankI1)
 	obj.α *= Diagonal(vals)
 	Γt = obj.R1\(obj.R0 - obj.R2*β*obj.α')
-	β⊥ = null(β')
-	ξ, vals, η = rrr((obj.R0 - obj.R1*β*bar(β)'Γt)*null(obj.α'), obj.R1*β⊥, obj.rankI2)
+	β⊥ = nullspace(β')
+	ξ, vals, η = rrr((obj.R0 - obj.R1*β*bar(β)'Γt)*nullspace(obj.α'), obj.R1*β⊥, obj.rankI2)
 	ξ *= Diagonal(vals)
 	obj.τ[:,1:obj.rankI1] = β
 	obj.τ[:,obj.rankI1 + 1:end] = β⊥*η
-	obj.τ⊥[:] = β⊥*null(η')
+	obj.τ⊥[:] = β⊥*nullspace(η')
 	obj.ρδ[1:obj.rankI1 + obj.rankI2,:] = eye(obj.rankI1 + obj.rankI2, obj.rankI1)
-	obj.ρδ[obj.rankI1 + obj.rankI2 + 1:end,:] = bar(β⊥*null(η'))'Γt*bar(obj.α)
+	obj.ρδ[obj.rankI1 + obj.rankI2 + 1:end,:] = bar(β⊥*nullspace(η'))'Γt*bar(obj.α)
 	obj.ζt[1:obj.rankI1,:] = bar(β)'Γt
 	obj.ζt[obj.rankI1 + 1:end,:] = bar(β⊥*η)'Γt
 	return obj

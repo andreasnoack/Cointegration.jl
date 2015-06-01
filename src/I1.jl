@@ -46,7 +46,7 @@ function civecmI1(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 end
 civecmI1(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags::Int64) = civecmI1(endogenous, exogenous, lags, size(endogenous, 2))
 civecmI1(endogenous::Matrix{Float64}, lags::Int64) = civecmI1(endogenous, zeros(size(endogenous, 1), 0), lags)
-civecmI1(endogenous::Matrix{Float64}, exogenous::Range1, lags::Int64) = civecmI1(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
+civecmI1(endogenous::Matrix{Float64}, exogenous::UnitRange, lags::Int64) = civecmI1(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
 
 endogenous(obj::CivecmI1) = obj.endogenous
 

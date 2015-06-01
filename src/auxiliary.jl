@@ -35,7 +35,7 @@ function lagmatrix(A::Matrix, lags::AbstractArray{Int64, 1})
 end
 
 function mreg(Y::VecOrMat, X::Matrix)
-	coef = qrfact(X,pivot=true)\Y
+	coef = qrfact(X, Val{true})\Y
 	residuals = Y - X*coef
 	(coef, residuals)
 end
