@@ -172,11 +172,13 @@ function estimateSwitch(obj::CivecmI1)
 	ll1 = ll0
 	for i = 1:obj.maxiter
 		OmegaInv = inv(cholfact!(residualvariance(obj)))
-		aoas11 = kron(obj.α'OmegaInv*obj.α, S11)
-		phi = qrfact!(obj.Hβ'*aoas11*obj.Hβ, pivot=true)\(obj.Hβ'*(vec(S10*OmegaInv*obj.α) - aoas11*obj.hβ))
-		obj.β = reshape(obj.Hβ*phi + obj.hβ, size(obj.β)...)
-		γ = qrfact!(obj.Hα'kron(OmegaInv, obj.β'S11*obj.β)*obj.Hα, pivot=true)\(obj.Hα'vec(obj.β'S10*OmegaInv))
-		obj.α = reshape(obj.Hα*γ, size(obj.α, 2), size(obj.α, 1))'
+		aoas11 = kron(obj.α' * OmegaInv * obj.α, S11)
+		phi = qrfact!(obj.Hβ' * aoas11 * obj.Hβ, Val{true}) \
+			(obj.Hβ' * (vec(S10 * OmegaInv * obj.α) - aoas11 * obj.hβ))
+		obj.β = reshape(obj.Hβ * phi + obj.hβ, size(obj.β)...)
+		γ = qrfact!(obj.Hα' * kron(OmegaInv, obj.β' * S11 * obj.β) * obj.Hα, Val{true}) \
+			(obj.Hα' * vec(obj.β' * S10 * OmegaInv))
+		obj.α = reshape(obj.Hα * γ, size(obj.α, 2), size(obj.α, 1))'
 		ll1 = loglikelihood(obj)
 		if obj.verbose @printf("log-likelihood: %f\n", ll1) end
 		if abs(ll1 - ll0) < obj.llConvCrit break end

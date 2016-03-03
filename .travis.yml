@@ -1,0 +1,16 @@
+language: julia
+os:
+  - linux
+  - osx
+julia:
+  - 0.4
+  - nightly
+notifications:
+  email: andreasnoackjensen@gmail.com
+before_install:
+  - if [[ -a .git/shallow ]]; then git fetch --unshallow; fi
+script:
+  - julia --check-bounds=yes -e 'Pkg.clone(pwd())'
+  - julia --check-bounds=yes -e 'Pkg.test("Civecm"; coverage=true)'
+after_success:
+  - julia -e 'cd(Pkg.dir("Civecm")); Pkg.add("Coverage"); using Coverage; Coveralls.submit(Coveralls.process_folder())'
