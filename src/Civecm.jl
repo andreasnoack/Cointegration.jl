@@ -1,6 +1,4 @@
 # Min Civecm kode
-using StatsBase
-using Distributions
 
 module Civecm
 using Distributions
