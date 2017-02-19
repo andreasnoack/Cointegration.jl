@@ -22,8 +22,10 @@ end
 
 function lagmatrix(A::Matrix, lags::AbstractArray{Int64, 1})
 	(iT, ip) = size(A)
-	if isempty(lags) return Array(Float64, iT, 0) end
-	ans = Array(Float64, iT - maximum(lags), ip * size(lags, 1))
+	if isempty(lags)
+		return Matrix{Float64}(iT, 0)
+	end
+	ans = Matrix{Float64}(iT - maximum(lags), ip * size(lags, 1))
 	for i in 1:ip
 		for j in 1:size(lags, 1)
 			for k in 1:size(ans, 1)
@@ -214,5 +216,5 @@ function I2TraceSimulate(eps::Matrix{Float64}, s::Int64, exo::Matrix{Float64})
 	else
 		tmp2 	= [0.0]
 	end
-	return (-iT * (sum(log(1.0 - tmp1)) + sum(log(1.0 - tmp2))))
+	return -iT * (sum(t -> log(1 - t), tmp1) + sum(t -> log(1 - t), tmp2))
 end

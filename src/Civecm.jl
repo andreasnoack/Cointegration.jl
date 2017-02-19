@@ -1,7 +1,7 @@
 # Min Civecm kode
 
 module Civecm
-using Distributions
+using Compat, Distributions
 
 import Base: convert, copy, eigfact, eigvals, show, LinAlg.syrk_wrapper!
 import StatsBase: loglikelihood, residuals

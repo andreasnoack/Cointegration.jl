@@ -34,7 +34,7 @@ simulate(obj::VAR, iT::Integer) = simulate(obj, randn(iT, size(obj.endogenous, 2
 
 function convert(::Type{VAR}, obj::CivecmI1)
 	p = size(obj.endogenous, 2)
-	endocoefs = Array(Float64, p, p, obj.lags)
+	endocoefs = Array{Float64}(p, p, obj.lags)
 	endocoefs[:,:,1] = obj.α*obj.β' + eye(p)
 	if obj.lags > 1
 		endocoefs[:,:,1] += obj.Γ[:,1:p]
@@ -48,7 +48,7 @@ end
 
 function convert(::Type{VAR}, obj::CivecmI2)
 	p = size(obj.endogenous, 2)
-	endocoefs = Array(Float64, p, p, obj.lags)
+	endocoefs = Array{Float64}(p, p, obj.lags)
 	endocoefs[:,:,1] = 2eye(p) + (obj.α*ρ(obj)'*τ(obj)' + obj.α*δ(obj)'*obj.τ⊥' + obj.ζt'*τ(obj)')[1:p,1:p]
 	endocoefs[:,:,2] = -eye(p) - (obj.α*δ(obj)'*obj.τ⊥' + obj.ζt'*τ(obj)')[1:p,1:p]
 	if obj.lags > 2

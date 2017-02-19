@@ -12,7 +12,7 @@ type CivecmI2 <: AbstractCivecm
 	σ::Matrix{Float64}
 	llConvCrit::Float64
 	maxiter::Int64
-	method::ASCIIString
+	method::String
 	Z0::Matrix{Float64}
 	Z1::Matrix{Float64}
 	Z2::Matrix{Float64}
@@ -27,27 +27,27 @@ function civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 	iT = ss - lags
 	pexo = size(exogenous, 2)
 	p1 = p + pexo
-	obj = CivecmI2(endogenous, 
+	obj = CivecmI2(endogenous,
 					exogenous,
 					lags,
 					rankI1,
 					rankI2,
-					Array(Float64, p, rankI1), 
-					Array(Float64, p1, rankI1),
-					Array(Float64, p1, rankI1),
-					Array(Float64, p, rankI2),
-					Array(Float64, p1, rankI2),
-					Array(Float64, p, rankI1),
-					1.0e-8, 
-					5000, 
+					Matrix{Float64}(p, rankI1),
+					Matrix{Float64}(p1, rankI1),
+					Matrix{Float64}(p1, rankI1),
+					Matrix{Float64}(p, rankI2),
+					Matrix{Float64}(p1, rankI2),
+					Matrix{Float64}(p, rankI1),
+					1.0e-8,
+					5000,
 					"Johansen",
-					Array(Float64, iT, p), 
-					Array(Float64, iT, p1),
-					Array(Float64, iT, p1),
-					Array(Float64, iT, p*(lags - 2) + pexo*(lags - 1)),
-					Array(Float64, iT, p),
-					Array(Float64, iT, p1), 
-					Array(Float64, iT, p1))
+					Matrix{Float64}(iT, p),
+					Matrix{Float64}(iT, p1),
+					Matrix{Float64}(iT, p1),
+					Matrix{Float64}(iT, p*(lags - 2) + pexo*(lags - 1)),
+					Matrix{Float64}(iT, p),
+					Matrix{Float64}(iT, p1),
+					Matrix{Float64}(iT, p1))
 	auxilliaryMatrices(obj)
 	estimate(obj)
 	return obj
@@ -129,12 +129,12 @@ function setrank(obj::CivecmI2, rankI1::Int64, rankI2::Int64)
 		p1 = p + size(obj.exogenous, 2)
 		obj.rankI1 = rankI1
 		obj.rankI2 = rankI2
-		obj.α = Array(Float64, p, rankI1)
-		obj.β = Array(Float64, p1, rankI1)
-		obj.ν = Array(Float64, p1, rankI1)
-		obj.ξ = Array(Float64, p, rankI2)
-		obj.γ = Array(Float64, p1, rankI2)
-		obj.σ = Array(Float64, p, rankI1)
+		obj.α = Matrix{Float64}(p , rankI1)
+		obj.β = Matrix{Float64}(p1, rankI1)
+		obj.ν = Matrix{Float64}(p1, rankI1)
+		obj.ξ = Matrix{Float64}(p , rankI2)
+		obj.γ = Matrix{Float64}(p1, rankI2)
+		obj.σ = Matrix{Float64}(p , rankI1)
 	end
 	return estimate(obj)
 end
@@ -158,7 +158,7 @@ function estimateSwitch(obj::CivecmI2)
 	if max(obj.rankI1, obj.rankI2) == 0
 		obj.α[:] 	= zeros(ip, obj.rankI1)
 		obj.β[:] 	= zeros(ip1, obj.rankI1)
-		obj.ν[:] 	= zeros(ip1, obj.rankI1)            
+		obj.ν[:] 	= zeros(ip1, obj.rankI1)
 		obj.ξ[:] 	= zeros(ip, obj.rankI2)
 		obj.γ[:] 	= zeros(ip1, obj.rankI2)
 		obj.σ[:] 	= zeros(ip, obj.rankI1)
@@ -176,7 +176,7 @@ function estimateSwitch(obj::CivecmI2)
 		tmp1 = speye(2 * obj.rankI1 + obj.rankI2 + 1, 2 * obj.rankI1 + obj.rankI2)
 		tmp2 = copy(tmp1[[reshape(reshape(1:2 * obj.rankI1, obj.rankI1, 2)', 2 * obj.rankI1), reshape([(2 * obj.rankI1 + obj.rankI2 + 1) * ones(Int, obj.rankI2) (1:obj.rankI2) + 2 * obj.rankI1]', 2 * obj.rankI2), reshape([(2 * obj.rankI1 + obj.rankI2 + 1) * ones(Int, obj.rankI1) 1:obj.rankI1]', 2 * obj.rankI1)], :])
 		K = kron(tmp2, speye(size(obj.R1, 2)))
-	    
+
 	    R2R1 = [obj.R2 obj.R1]
 	   	tmpX = [obj.R2 * obj.β + obj.R1 * obj.ν obj.R1 * obj.γ obj.R1 * obj.β]
 		tmpCoef = tmpX \ obj.R0
@@ -203,14 +203,14 @@ function estimateSwitch(obj::CivecmI2)
 					# tmpGam 		= copy(tmpFit2[1:ip1,:])'
 					obj.γ[:] 	= tmpFit.β[:,obj.rankI1+1:obj.rankI1+obj.rankI2]
 					# obj.σ 	= eye(ip, obj.rankI1)
-					obj.σ[:]	= Array(Float64, ip, obj.rankI1)
+					obj.σ[:]	= Matrix{Float64}(ip, obj.rankI1)
 					obj.ν[:]	= full(qrfact!([obj.β obj.γ])[:Q], false)[:,end-obj.rankI1+1:end]
 					# obj.ν 		= (obj.α \ (tmpGam - obj.σ * obj.β'))'
-					obj.ξ[:] 	= Array(Float64, ip, obj.rankI2)
+					obj.ξ[:] 	= Matrix{Float64}(ip, obj.rankI2)
 					mOmega 		= residualvariance(obj)
 				else
 					obj.β[:] 	= randn(ip1, obj.rankI1)
-					obj.ν[:] 	= randn(ip1, obj.rankI1)            
+					obj.ν[:] 	= randn(ip1, obj.rankI1)
 					obj.γ[:] 	= randn(ip1, obj.rankI2)
 					mOmega 		= residualvariance(obj)
 				end
@@ -219,7 +219,7 @@ function estimateSwitch(obj::CivecmI2)
 				# m = min(obj.rankI1, ip - obj.rankI1 - obj.rankI2);
 			 	# tmpFit = CivecmI2alt(obj.endogenous, obj.exogenous, obj.lags).setrank([obj.rankI1 - m, obj.rankI2 + 2 * m]);
 				# [obj.α, obj.β, obj.ν, obj.ξ, obj.γ, obj.σ] = CivecmI2alt.initialPars(tmpFit.α, tmpFit.β, tmpFit.ν, tmpFit.ξ, tmpFit.γ, tmpFit.σ, 1, m)
-			
+
 
 			ll = -1.0e9
 			ll0 = ll
@@ -251,7 +251,7 @@ function estimateSwitch(obj::CivecmI2)
             if
 				abs(ll - ll0) < obj.llConvCrit
 				break
-			end             
+			end
 			print("Om igen!")
 		end
 	end
@@ -272,30 +272,30 @@ function estimateτSwitch(obj::CivecmI2)
 	S22 = obj.R2'obj.R2/iT
 
 	# Memory allocation
-	Rτ = Array(Float64, iT, p1)
-	R1τ = Array(Float64, iT, rs)
-	workX = Array(Float64, rs, p1)
-	mX = Array(Float64, iT, p1)
-	workY = Array(Float64, rs, p)
-	mY = Array(Float64, iT, p)
-	αort = Array(Float64, p, p - obj.rankI1)
-	workRRR = Array(Float64, obj.rankI1)
-	ρδ = Array(Float64, p1, obj.rankI1)
-	ρ = sub(ρδ, 1:rs, 1:obj.rankI1)
-	ρort = Array(Float64, rs, rs - obj.rankI1)
-	δ = sub(ρδ, rs+1:p1, 1:obj.rankI1)
-	ζt = Array(Float64, rs, p)
-	ζtαort = Array(Float64, rs, p - obj.rankI1)
-	res = Array(Float64, iT, p)
+	Rτ      = Matrix{Float64}(iT, p1)
+	R1τ     = Matrix{Float64}(iT, rs)
+	workX   = Matrix{Float64}(rs, p1)
+	mX      = Matrix{Float64}(iT, p1)
+	workY   = Matrix{Float64}(rs, p)
+	mY      = Matrix{Float64}(iT, p)
+	αort    = Matrix{Float64}(p , p - obj.rankI1)
+	workRRR = Vector{Float64}(obj.rankI1)
+	ρδ      = Matrix{Float64}(p1, obj.rankI1)
+	ρ       = viec(ρδ, 1:rs, 1:obj.rankI1)
+	ρort    = Matrix{Float64}(rs, rs - obj.rankI1)
+	δ       = view(ρδ, rs+1:p1, 1:obj.rankI1)
+	ζt      = Matrix{Float64}(rs, p)
+	ζtαort  = Matrix{Float64}(rs, p - obj.rankI1)
+	res     = Matrix{Float64}(iT, p)
 	_, _, τ = rrr(obj.R0, obj.R1, rs)
-	τort = Array(Float64, p1, p1 - rs)
+	τort    = Matrix{Float64}(p1, p1 - rs)
 	# Ω = Cholesky(eye(p), 'U')
-	Ω = Array(Float64, p, p)
-	A = Array(Float64, rs, rs)
-	B = Array(Float64, p1, p1)
-	C = Array(Float64, rs, rs)
-	D = Array(Float64, p1, p1)
-	E = Array(Float64, p1*rs)
+	Ω = Matrix{Float64}(p , p)
+	A = Matrix{Float64}(rs, rs)
+	B = Matrix{Float64}(p1, p1)
+	C = Matrix{Float64}(rs, rs)
+	D = Matrix{Float64}(p1, p1)
+	E = Vector{Float64}(p1*rs)
 
 	# Algorithm
 	ll = -realmax()
@@ -312,9 +312,9 @@ function estimateτSwitch(obj::CivecmI2)
 		ζt[:], res[:] = mreg(obj.R0 - Rτ*ρδ*obj.α', R1τ)
 		Ω[:] = res'res/iT
 		ll = -0.5logdet(cholfact(Ω))
-		if abs(ll - ll0) < obj.llConvCrit 
+		if abs(ll - ll0) < obj.llConvCrit
 			@printf("Convergence in %d iterations.\n", j - 1)
-			break 
+			break
 		end
 		ll0 = ll
 		# LinAlg.LAPACK.potrf!('U', Ω.UL)

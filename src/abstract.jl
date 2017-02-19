@@ -1,10 +1,14 @@
-abstract AbstractCivecm
+@compat abstract type AbstractCivecm end
 
 eigvals(obj::AbstractCivecm) = eigvals(convert(VAR, obj))
 
-loglikelihood(obj::AbstractCivecm) = (nobs = size(endogenous(obj), 1) - obj.lags; -0.5*nobs*(logdet(cholfact!(residualvariance(obj))) - size(endogenous(obj), 2)*(log(nobs) - 1 - log(2π))))
+function loglikelihood(obj::AbstractCivecm)
+	nobs = size(endogenous(obj), 1) - obj.lags
+	-nobs*(logdet(cholfact!(residualvariance(obj))) - size(endogenous(obj), 2)*(log(nobs) - 1 - log(2π)))/2
+end
 # loglikelihood(A::StridedMatrix) = -0.5*size(A, 1)*(2sum(log(abs(diag(qrfact(A).factors)/sqrt(size(A,1))))) - size(A, 2)*(log(size(A, 1)) - 1 - log(2π)))
-loglikelihood(A::StridedMatrix) = -0.5*size(A, 1)*(logdet(cov(A, corrected = false, mean = 0)) - size(A, 2)*(log(size(A, 1)) - 1 - log(2π)))
+loglikelihood(A::StridedMatrix) =
+	-size(A, 1)*(logdet(Base.covzm(A, 1, false)) - size(A, 2)*(log(size(A, 1)) - 1 - log(2π)))/2
 
 # aic(obj::Civecm) = 2*(npars(obj) - loglikelihood(obj))
 
@@ -27,7 +31,7 @@ end
 lrtest(obj0::AbstractCivecm, objA::AbstractCivecm, df::Integer) = LRTest(obj0, objA, 2*(loglikelihood(objA) - loglikelihood(obj0)), df)
 
 function bootstrap(obj::LRTest, reps::Integer, simH0 = true)
-	lrvals = Array(Float64, reps)
+	lrvals = Vector{Float64}(reps)
 	bootH0 = copy(obj.H0)
 	bootHA = copy(obj.HA)
 	bootHA.endogenous = bootH0.endogenous
@@ -36,7 +40,7 @@ function bootstrap(obj::LRTest, reps::Integer, simH0 = true)
 	# simResiduals = residuals(obj.H0)
 	simResiduals = residuals(obj.HA)
 	mbr = mean(simResiduals, 1)
-	bi = Array(Float64, iT)
+	bi = Vector{Float64}(iT)
 	bootResiduals = similar(simResiduals)
 	for i = 1:reps
 		bi[:] = randn(iT)

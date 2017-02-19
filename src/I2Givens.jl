@@ -22,7 +22,7 @@ function civecmI2Givens(endogenous::Matrix{Float64}, exogenous::Matrix{Float64},
 	mDU = diff(exogenous)
 	mDDU = diff(diff(exogenous))
 	mLDDU = lagmatrix(mDDU, 0:lags - 2)
-	
+
 	Z0 = mDDX[lags - 1:, :]
 	Z1 = [mDX[lags - 1:end - 1, :] mDU[lags - 1:end - 1, :]]
 	Z2 = [endogenous[lags:end - 1, :] exogenous[lags:end - 1, :]]
@@ -40,7 +40,8 @@ function civecmI2Givens(endogenous::Matrix{Float64}, exogenous::Matrix{Float64},
 		R2 = Z2
 	end
 
-	return CivecmI2Givens(endogenous, float64(exogenous), lags, (size(endogenous, 2), 0), Array(Float64, npars(size(R1, 2), size(R0, 2), size(R0, 2), 0)), 1.0e-8, 50000, Z0, Z1, Z2, Z3, R0, R1, R2)
+	return CivecmI2Givens(endogenous, float64(exogenous), lags, (size(endogenous, 2), 0),
+        Array{Float64}(npars(size(R1, 2), size(R0, 2), size(R0, 2), 0)), 1.0e-8, 50000, Z0, Z1, Z2, Z3, R0, R1, R2)
 end
 civecmI2Givens(endogenous::Matrix{Float64}, lags::Int64) = civecmI2Givens(endogenous, zeros(size(endogenous, 1), 0), lags)
 civecmI2Givens(endogenous::Matrix{Float64}, exogenous::Range1, lags::Int64) = civecmI2Givens(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
@@ -110,7 +111,7 @@ end
 function σ_α_β(obj::CivecmI2Givens)
 	p = size(obj.Z0, 2)
 	p1 = size(obj.Z1, 2)
-	count = div(p*(p-1),2)-div((p-obj.rank[1])*(p-obj.rank[1]-1),2) + 
+	count = div(p*(p-1),2)-div((p-obj.rank[1])*(p-obj.rank[1]-1),2) +
 		div(p1*(p1-1),2)-div((p1-obj.rank[1])*(p1-obj.rank[1]-1),2) + 1
 	return diagm(obj.pars[count:count + obj.rank[1] - 1])
 end
@@ -118,10 +119,10 @@ end
 function Γ(obj::CivecmI2Givens)
 	p = size(obj.Z0, 2)
 	p1 = size(obj.Z1, 2)
-	count = div(p*(p-1),2)-div((p-obj.rank[1])*(p-obj.rank[1]-1),2) + 
-		div(p1*(p1-1),2)-div((p1-obj.rank[1])*(p1-obj.rank[1]-1),2) + 
+	count = div(p*(p-1),2)-div((p-obj.rank[1])*(p-obj.rank[1]-1),2) +
+		div(p1*(p1-1),2)-div((p1-obj.rank[1])*(p1-obj.rank[1]-1),2) +
 		obj.rank[1] + 1
-	ans = Array(Float64, p, p1)
+	ans = Matrix{Float64}(p, p1)
 	ans[:,1:obj.rank[1]] = obj.pars[count:count + p*obj.rank[1] - 1]
 	ans[1:obj.rank[1],obj.rank[1] + 1:end] = obj.pars[count + p*obj.rank[1]:count + p*obj.rank[1] + (p - obj.rank[1])*obj.rank[1] - 1]
 	ans[obj.rank[1] + 1:,obj.rank[1] + 1:] = ξ(obj)*σ_ξ_η(obj)*ηpar(obj)'
@@ -131,9 +132,9 @@ end
 function ξ(obj::CivecmI2Givens)
 	p = size(obj.Z0, 2)
 	p1 = size(obj.Z1, 2)
-	count = div(p*(p-1),2)-div((p-obj.rank[1])*(p-obj.rank[1]-1),2) + 
-		div(p1*(p1-1),2)-div((p1-obj.rank[1])*(p1-obj.rank[1]-1),2) + 
-		obj.rank[1] + 
+	count = div(p*(p-1),2)-div((p-obj.rank[1])*(p-obj.rank[1]-1),2) +
+		div(p1*(p1-1),2)-div((p1-obj.rank[1])*(p1-obj.rank[1]-1),2) +
+		obj.rank[1] +
 		p*obj.rank[1] + (p - obj.rank[1])*obj.rank[1] + 1
 	ans = eye(p - obj.rank[1], obj.rank[2])
 	for i = 1:obj.rank[2]
