@@ -154,7 +154,9 @@ function switch!(Y::Matrix, X::Matrix, A::Matrix, B::Matrix, Ω::Matrix, H=I, h=
             break
         end
     end
-    if i == maxiter warn("no convergence in $(i) iterations") end
+    if i == maxiter
+        @warn "no convergence in $(i) iterations"
+    end
     return A, B, Ω, i
 end
 
@@ -185,7 +187,9 @@ end
 #             break
 #         end
 #     end
-#     if i == maxiter warn("no convergence in $(i) iterations") end
+    # if i == maxiter
+    #     @warn "no convergence in $(i) iterations"
+    # end
 #     return A, B, Ω, i
 # end
 

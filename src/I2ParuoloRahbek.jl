@@ -261,7 +261,7 @@ function estimateτSwitch(obj::CivecmI2)
             break
         end
         if isnan(ll)
-            warn("nans in loglikehood. Aborting!")
+            @warn "nans in loglikehood. Aborting!"
             obj.convCount = obj.maxiter
             break
         end
@@ -301,7 +301,7 @@ function estimateτSwitch(obj::CivecmI2)
             break
         end
         if isnan(ll)
-            warn("nans in loglikehood. Aborting!")
+            @warn "nans in loglikehood. Aborting!"
             obj.convCount = obj.maxiter
             break
         end
@@ -330,10 +330,10 @@ function estimate2step(obj)
 end
 
 function ranktest(obj::CivecmI2)
-    ip             = size(obj.endogenous, 2)
-    r, s         = obj.rankI1, obj.rankI2
-    ll0         = loglikelihood(setrank(obj, ip, 0))
-    tmpTrace     = zeros(ip, ip + 1)
+    ip       = size(obj.endogenous, 2)
+    r, s     = obj.rankI1, obj.rankI2
+    ll0      = loglikelihood(setrank(obj, ip, 0))
+    tmpTrace = zeros(ip, ip + 1)
     for i = 0:ip - 1
         for j = 0:ip - i
             obj.verbose && println("r=$(i), s=$(j)")
@@ -345,8 +345,8 @@ function ranktest(obj::CivecmI2)
 end
 
 function ranktest(obj::CivecmI2, reps::Int64)
-    vals     = ranktest(obj)
-    pvals     = ranktestPvaluesSimluateAsymp(obj, vals, reps)
+    vals  = ranktest(obj)
+    pvals = ranktestPvaluesSimluateAsymp(obj, vals, reps)
     return (vals, pvals)
 end
 
