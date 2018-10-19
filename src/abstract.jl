@@ -1,14 +1,14 @@
-@compat abstract type AbstractCivecm end
+abstract type AbstractCivecm end
 
 eigvals(obj::AbstractCivecm) = eigvals(convert(VAR, obj))
 
 function loglikelihood(obj::AbstractCivecm)
 	nobs = size(endogenous(obj), 1) - obj.lags
-	-nobs*(logdet(cholfact!(residualvariance(obj))) - size(endogenous(obj), 2)*(log(nobs) - 1 - log(2π)))/2
+	-nobs*(logdet(cholesky!(residualvariance(obj))) - size(endogenous(obj), 2)*(log(nobs) - 1 - log(2π)))/2
 end
-# loglikelihood(A::StridedMatrix) = -0.5*size(A, 1)*(2sum(log(abs(diag(qrfact(A).factors)/sqrt(size(A,1))))) - size(A, 2)*(log(size(A, 1)) - 1 - log(2π)))
+# loglikelihood(A::StridedMatrix) = -0.5*size(A, 1)*(2sum(log(abs(diag(qr(A).factors)/sqrt(size(A,1))))) - size(A, 2)*(log(size(A, 1)) - 1 - log(2π)))
 loglikelihood(A::StridedMatrix) =
-	-size(A, 1)*(logdet(Base.covzm(A, 1, false)) - size(A, 2)*(log(size(A, 1)) - 1 - log(2π)))/2
+	-size(A, 1)*(logdet(Statistics.covzm(A, 1, corrected=false)) - size(A, 2)*(log(size(A, 1)) - 1 - log(2π)))/2
 
 # aic(obj::Civecm) = 2*(npars(obj) - loglikelihood(obj))
 
@@ -21,7 +21,7 @@ end
 normalitytest(obj::AbstractCivecm) = normalitytest(residuals(obj))
 
 ## LR test
-type LRTest{T<:AbstractCivecm}
+mutable struct LRTest{T<:AbstractCivecm}
 	H0::T
 	HA::T
 	value::Float64

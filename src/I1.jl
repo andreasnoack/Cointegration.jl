@@ -1,4 +1,4 @@
-type CivecmI1 <: AbstractCivecm
+mutable struct CivecmI1 <: AbstractCivecm
 	endogenous::Matrix{Float64}
 	exogenous::Matrix{Float64}
 	lags::Int64
@@ -26,20 +26,20 @@ function civecmI1(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 	obj = CivecmI1(endogenous,
 				   exogenous,
 				   lags,
-				   Matrix{Float64}(p, rank),
-				   Matrix{Float64}(p1, rank),
-				   Matrix{Float64}(p, (lags - 1)*p + lags*pexo),
-				   eye(p*rank),
-				   eye(p1*rank),
+				   Matrix{Float64}(undef, p, rank),
+				   Matrix{Float64}(undef, p1, rank),
+				   Matrix{Float64}(undef, p, (lags - 1)*p + lags*pexo),
+				   Matrix{Float64}(undef, p*rank, p*rank),
+				   Matrix{Float64}(undef, p1*rank, p1*rank),
 				   zeros(p1*rank),
 				   1.0e-8,
 				   5000,
 				   false,
-				   Matrix{Float64}(iT, p),
-				   Matrix{Float64}(iT, p1),
-				   Matrix{Float64}(iT, (lags-1)*p + lags*pexo),
-				   Matrix{Float64}(iT, p),
-				   Matrix{Float64}(iT, p1))
+				   Matrix{Float64}(undef, iT, p),
+				   Matrix{Float64}(undef, iT, p1),
+				   Matrix{Float64}(undef, iT, (lags-1)*p + lags*pexo),
+				   Matrix{Float64}(undef, iT, p),
+				   Matrix{Float64}(undef, iT, p1))
 	auxilliaryMatrices(obj)
 	estimateEigen(obj)
 	return obj
@@ -139,10 +139,10 @@ function show(io::IO, obj::CivecmI1)
 end
 
 function setrank(obj::CivecmI1, rank::Int64)
-	obj.α = Matrix{Float64}(size(obj.R0, 2), rank)
-	obj.β = Matrix{Float64}(size(obj.R1, 2), rank)
-	obj.Hα = eye(size(obj.R0, 2)*rank)
-	obj.Hβ = eye(size(obj.R1, 2)*rank)
+	obj.α = Matrix{Float64}(undef, size(obj.R0, 2), rank)
+	obj.β = Matrix{Float64}(undef, size(obj.R1, 2), rank)
+	obj.Hα = Matrix{Float64}(undef, size(obj.R0, 2)*rank, size(obj.R0, 2)*rank)
+	obj.Hβ = Matrix{Float64}(undef, size(obj.R1, 2)*rank, size(obj.R1, 2)*rank)
 	obj.hβ = zeros(size(obj.R1, 2)*rank)
 	return estimateEigen(obj)
 end
@@ -168,15 +168,15 @@ function estimateSwitch(obj::CivecmI1)
 	iT = size(obj.Z0, 1)
 	S11 = scale!(obj.R1'obj.R1, 1/iT)
 	S10 = scale!(obj.R1'obj.R0, 1/iT)
-	ll0 = -realmax()
+	ll0 = -floatmax()
 	ll1 = ll0
 	for i = 1:obj.maxiter
-		OmegaInv = inv(cholfact!(residualvariance(obj)))
+		OmegaInv = inv(cholesky!(residualvariance(obj)))
 		aoas11 = kron(obj.α' * OmegaInv * obj.α, S11)
-		phi = qrfact!(obj.Hβ' * aoas11 * obj.Hβ, Val{true}) \
+		phi = qr!(obj.Hβ' * aoas11 * obj.Hβ, Val(true)) \
 			(obj.Hβ' * (vec(S10 * OmegaInv * obj.α) - aoas11 * obj.hβ))
 		obj.β = reshape(obj.Hβ * phi + obj.hβ, size(obj.β)...)
-		γ = qrfact!(obj.Hα' * kron(OmegaInv, obj.β' * S11 * obj.β) * obj.Hα, Val{true}) \
+		γ = qr!(obj.Hα' * kron(OmegaInv, obj.β' * S11 * obj.β) * obj.Hα, Val(true)) \
 			(obj.Hα' * vec(obj.β' * S10 * OmegaInv))
 		obj.α = reshape(obj.Hα * γ, size(obj.α, 2), size(obj.α, 1))'
 		ll1 = loglikelihood(obj)
@@ -189,7 +189,7 @@ end
 
 function ranktest(obj::CivecmI1, reps::Int64)
 	_, svdvals, _ = rrr(obj.R0, obj.R1)
-	tmpTrace = -size(obj.Z0, 1) * reverse(cumsum(reverse(log.(1 - svdvals.^2))))
+	tmpTrace = -size(obj.Z0, 1) * reverse(cumsum(reverse(log.(1 .- svdvals.^2))))
 	tmpPVals = zeros(size(tmpTrace))
 	rankdist = zeros(reps)
 	iT, ip = size(obj.endogenous)
@@ -218,7 +218,7 @@ residuals(obj::CivecmI1) = obj.R0 - obj.R1*obj.β*obj.α'
 
 ## I1 ranktest
 
-type TraceTest
+mutable struct TraceTest
 	values::Vector{Float64}
 	pvalues::Vector{Float64}
 end

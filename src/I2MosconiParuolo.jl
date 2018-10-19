@@ -1,4 +1,4 @@
-type CivecmI2 <: AbstractCivecm
+mutable struct CivecmI2 <: AbstractCivecm
 	endogenous::Matrix{Float64}
 	exogenous::Matrix{Float64}
 	lags::Int64
@@ -32,22 +32,22 @@ function civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
 					lags,
 					rankI1,
 					rankI2,
-					Matrix{Float64}(p, rankI1),
-					Matrix{Float64}(p1, rankI1),
-					Matrix{Float64}(p1, rankI1),
-					Matrix{Float64}(p, rankI2),
-					Matrix{Float64}(p1, rankI2),
-					Matrix{Float64}(p, rankI1),
+					Matrix{Float64}(undef, p, rankI1),
+					Matrix{Float64}(undef, p1, rankI1),
+					Matrix{Float64}(undef, p1, rankI1),
+					Matrix{Float64}(undef, p, rankI2),
+					Matrix{Float64}(undef, p1, rankI2),
+					Matrix{Float64}(undef, p, rankI1),
 					1.0e-8,
 					5000,
 					"Johansen",
-					Matrix{Float64}(iT, p),
-					Matrix{Float64}(iT, p1),
-					Matrix{Float64}(iT, p1),
-					Matrix{Float64}(iT, p*(lags - 2) + pexo*(lags - 1)),
-					Matrix{Float64}(iT, p),
-					Matrix{Float64}(iT, p1),
-					Matrix{Float64}(iT, p1))
+					Matrix{Float64}(undef, iT, p),
+					Matrix{Float64}(undef, iT, p1),
+					Matrix{Float64}(undef, iT, p1),
+					Matrix{Float64}(undef, iT, p*(lags - 2) + pexo*(lags - 1)),
+					Matrix{Float64}(undef, iT, p),
+					Matrix{Float64}(undef, iT, p1),
+					Matrix{Float64}(undef, iT, p1))
 	auxilliaryMatrices(obj)
 	estimate(obj)
 	return obj
@@ -129,12 +129,12 @@ function setrank(obj::CivecmI2, rankI1::Int64, rankI2::Int64)
 		p1 = p + size(obj.exogenous, 2)
 		obj.rankI1 = rankI1
 		obj.rankI2 = rankI2
-		obj.α = Matrix{Float64}(p , rankI1)
-		obj.β = Matrix{Float64}(p1, rankI1)
-		obj.ν = Matrix{Float64}(p1, rankI1)
-		obj.ξ = Matrix{Float64}(p , rankI2)
-		obj.γ = Matrix{Float64}(p1, rankI2)
-		obj.σ = Matrix{Float64}(p , rankI1)
+		obj.α = Matrix{Float64}(undef, p , rankI1)
+		obj.β = Matrix{Float64}(undef, p1, rankI1)
+		obj.ν = Matrix{Float64}(undef, p1, rankI1)
+		obj.ξ = Matrix{Float64}(undef, p , rankI2)
+		obj.γ = Matrix{Float64}(undef, p1, rankI2)
+		obj.σ = Matrix{Float64}(undef, p , rankI1)
 	end
 	return estimate(obj)
 end
@@ -166,21 +166,21 @@ function estimateSwitch(obj::CivecmI2)
 		tmpFit 		= setrank(civecmI1(obj.endogenous, obj.exogenous, obj.lags), obj.rankI1)
 		obj.α[:] 	= tmpFit.α
 		obj.β[:] 	= tmpFit.β
-		obj.σ[:] 	= eye(ip, obj.rankI1)
+		obj.σ[:] 	= Matrix{Float64}(I, ip, obj.rankI1)
 		tmpFit2 	= [obj.R1 obj.R2 * obj.β] \ obj.R0
 		tmpGam 		= tmpFit2[1:ip1,:]'
 		obj.ν[:] 	= (obj.α \ (tmpGam - obj.σ * obj.β'))'
 		obj.ξ[:] 	= zeros(ip, 0)
 		obj.γ[:] 	= zeros(ip1, 0)
 	else
-		tmp1 = speye(2 * obj.rankI1 + obj.rankI2 + 1, 2 * obj.rankI1 + obj.rankI2)
+		tmp1 = sparse(1.0*I, 2 * obj.rankI1 + obj.rankI2 + 1, 2 * obj.rankI1 + obj.rankI2)
 		tmp2 = copy(tmp1[[reshape(reshape(1:2 * obj.rankI1, obj.rankI1, 2)', 2 * obj.rankI1), reshape([(2 * obj.rankI1 + obj.rankI2 + 1) * ones(Int, obj.rankI2) (1:obj.rankI2) + 2 * obj.rankI1]', 2 * obj.rankI2), reshape([(2 * obj.rankI1 + obj.rankI2 + 1) * ones(Int, obj.rankI1) 1:obj.rankI1]', 2 * obj.rankI1)], :])
-		K = kron(tmp2, speye(size(obj.R1, 2)))
+		K = kron(tmp2, sparse(1.0*I, size(obj.R1, 2), size(obj.R1, 2)))
 
 	    R2R1 = [obj.R2 obj.R1]
 	   	tmpX = [obj.R2 * obj.β + obj.R1 * obj.ν obj.R1 * obj.γ obj.R1 * obj.β]
 		tmpCoef = tmpX \ obj.R0
-		mOmega = eye(ip)
+		mOmega = Matrix{Float64}(I, ip, ip)
 		tmpGLS = gls(obj.R0, [obj.R2 obj.R1], [obj.α obj.ξ obj.σ], K, [], mOmega)
 		for k = 1:20
 			# Iterative procedure
@@ -202,11 +202,11 @@ function estimateSwitch(obj::CivecmI2)
 					# tmpFit2 	= mreg(obj.R0, [obj.R1 obj.R2 * obj.β])[1]
 					# tmpGam 		= copy(tmpFit2[1:ip1,:])'
 					obj.γ[:] 	= tmpFit.β[:,obj.rankI1+1:obj.rankI1+obj.rankI2]
-					# obj.σ 	= eye(ip, obj.rankI1)
-					obj.σ[:]	= Matrix{Float64}(ip, obj.rankI1)
-					obj.ν[:]	= full(qrfact!([obj.β obj.γ])[:Q], false)[:,end-obj.rankI1+1:end]
+					# obj.σ 	= Matrix{Float64}(undef, ip, obj.rankI1)
+					obj.σ[:]	= Matrix{Float64}(undef, ip, obj.rankI1)
+					obj.ν[:]	= Matrix(qr!([obj.β obj.γ]).Q)[:,end-obj.rankI1+1:end]
 					# obj.ν 		= (obj.α \ (tmpGam - obj.σ * obj.β'))'
-					obj.ξ[:] 	= Matrix{Float64}(ip, obj.rankI2)
+					obj.ξ[:] 	= Matrix{Float64}(undef, ip, obj.rankI2)
 					mOmega 		= residualvariance(obj)
 				else
 					obj.β[:] 	= randn(ip1, obj.rankI1)
@@ -240,7 +240,7 @@ function estimateSwitch(obj::CivecmI2)
                 # Residual variable step
                 ll0 		= ll
                 mOmega[:]	= residualvariance(obj)
-                ll 			= -0.5 * logdet(cholfact(mOmega))
+                ll 			= -0.5 * logdet(cholesky(mOmega))
                 # @printf("Average log-likelihood value: %f\n", ll)
                 if abs(ll - ll0) < obj.llConvCrit
                 	@printf("Convergence in %d iterations.\n", j - 1)
@@ -272,33 +272,33 @@ function estimateτSwitch(obj::CivecmI2)
 	S22 = obj.R2'obj.R2/iT
 
 	# Memory allocation
-	Rτ      = Matrix{Float64}(iT, p1)
-	R1τ     = Matrix{Float64}(iT, rs)
-	workX   = Matrix{Float64}(rs, p1)
-	mX      = Matrix{Float64}(iT, p1)
-	workY   = Matrix{Float64}(rs, p)
-	mY      = Matrix{Float64}(iT, p)
-	αort    = Matrix{Float64}(p , p - obj.rankI1)
+	Rτ      = Matrix{Float64}(undef, iT, p1)
+	R1τ     = Matrix{Float64}(undef, iT, rs)
+	workX   = Matrix{Float64}(undef, rs, p1)
+	mX      = Matrix{Float64}(undef, iT, p1)
+	workY   = Matrix{Float64}(undef, rs, p)
+	mY      = Matrix{Float64}(undef, iT, p)
+	αort    = Matrix{Float64}(undef, p , p - obj.rankI1)
 	workRRR = Vector{Float64}(obj.rankI1)
-	ρδ      = Matrix{Float64}(p1, obj.rankI1)
+	ρδ      = Matrix{Float64}(undef, p1, obj.rankI1)
 	ρ       = viec(ρδ, 1:rs, 1:obj.rankI1)
-	ρort    = Matrix{Float64}(rs, rs - obj.rankI1)
+	ρort    = Matrix{Float64}(undef, rs, rs - obj.rankI1)
 	δ       = view(ρδ, rs+1:p1, 1:obj.rankI1)
-	ζt      = Matrix{Float64}(rs, p)
-	ζtαort  = Matrix{Float64}(rs, p - obj.rankI1)
-	res     = Matrix{Float64}(iT, p)
+	ζt      = Matrix{Float64}(undef, rs, p)
+	ζtαort  = Matrix{Float64}(undef, rs, p - obj.rankI1)
+	res     = Matrix{Float64}(undef, iT, p)
 	_, _, τ = rrr(obj.R0, obj.R1, rs)
-	τort    = Matrix{Float64}(p1, p1 - rs)
-	# Ω = Cholesky(eye(p), 'U')
-	Ω = Matrix{Float64}(p , p)
-	A = Matrix{Float64}(rs, rs)
-	B = Matrix{Float64}(p1, p1)
-	C = Matrix{Float64}(rs, rs)
-	D = Matrix{Float64}(p1, p1)
+	τort    = Matrix{Float64}(undef, p1, p1 - rs)
+
+	Ω = Matrix{Float64}(undef, p , p)
+	A = Matrix{Float64}(undef, rs, rs)
+	B = Matrix{Float64}(undef, p1, p1)
+	C = Matrix{Float64}(undef, rs, rs)
+	D = Matrix{Float64}(undef, p1, p1)
 	E = Vector{Float64}(p1*rs)
 
 	# Algorithm
-	ll = -realmax()
+	ll = -floatmax()
 	ll0 = ll
 	for j = 1:obj.maxiter
 		τort[:] = null(τ')
@@ -311,7 +311,7 @@ function estimateτSwitch(obj::CivecmI2)
 		obj.α[:] = obj.α*Diagonal(workRRR)
 		ζt[:], res[:] = mreg(obj.R0 - Rτ*ρδ*obj.α', R1τ)
 		Ω[:] = res'res/iT
-		ll = -0.5logdet(cholfact(Ω))
+		ll = -0.5logdet(cholesky(Ω))
 		if abs(ll - ll0) < obj.llConvCrit
 			@printf("Convergence in %d iterations.\n", j - 1)
 			break
@@ -322,12 +322,12 @@ function estimateτSwitch(obj::CivecmI2)
 		A[:] = ρ*obj.α'*(Ω\obj.α)*ρ'
 		B[:] = S22
 		ζtαort[:] = ζt*αort
-		C[:] = ζtαort*(cholfact!(αort'Ω*αort)\(ζtαort'))
+		C[:] = ζtαort*(cholesky!(αort'Ω*αort)\(ζtαort'))
 		D[:] = S11
-		E[:] = S20*(Ω\obj.α)*ρ' - S21*(τort*δ*obj.α' + τ*ζt)*(Ω\obj.α)*ρ' + S10*αort*(cholfact(	αort'Ω*αort)\(ζtαort'))
+		E[:] = S20*(Ω\obj.α)*ρ' - S21*(τort*δ*obj.α' + τ*ζt)*(Ω\obj.α)*ρ' + S10*αort*(cholesky(	αort'Ω*αort)\(ζtαort'))
 		τ[:] = qrpfact!(kron(A,B) + kron(C,D))\E
-		τ[:] = full(qrfact!(τ)[:Q])
-		τ[:] = τ/sqrtm(Hermitian(τ'S11*τ))
+		τ[:] = Matrix(qr!(τ).Q)
+		τ[:] = τ/sqrt(Hermitian(τ'S11*τ))
 	end
 	# Back to Mosconi/Paruolo pars
 	obj.β[:] = τ*ρ

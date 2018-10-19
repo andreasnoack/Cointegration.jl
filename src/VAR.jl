@@ -1,17 +1,17 @@
-type VAR
+mutable struct VAR
 	endogenous::Matrix{Float64}
 	exogenous::Matrix{Float64}
 	endocoefs::Array{Float64, 3}
 	exocoefs::Matrix{Float64}
 end
 
-eigfact(obj::VAR) = eigfact(companion(obj))
+eigen(  obj::VAR) = eigen(  companion(obj))
 eigvals(obj::VAR) = eigvals(companion(obj))
 
 function companion(obj::VAR)
 	p = size(obj.endogenous, 2)
 	k = size(obj.endocoefs, 3)
-	return [reshape(obj.endocoefs, p, p*k); eye((k-1)*p, k*p)]
+	return [reshape(obj.endocoefs, p, p*k); Matrix{Float64}(I, (k-1)*p, k*p)]
 end
 
 function simulate(obj::VAR, innovations::Matrix{Float64}, init::Matrix{Float64})
@@ -35,7 +35,7 @@ simulate(obj::VAR, iT::Integer) = simulate(obj, randn(iT, size(obj.endogenous, 2
 function convert(::Type{VAR}, obj::CivecmI1)
 	p = size(obj.endogenous, 2)
 	endocoefs = Array{Float64}(p, p, obj.lags)
-	endocoefs[:,:,1] = obj.α*obj.β' + eye(p)
+	endocoefs[:,:,1] = obj.α*obj.β' + I
 	if obj.lags > 1
 		endocoefs[:,:,1] += obj.Γ[:,1:p]
 		endocoefs[:,:,obj.lags] = -obj.Γ[:,(obj.lags-2)*p+1:(obj.lags-1)*p]
@@ -49,8 +49,8 @@ end
 function convert(::Type{VAR}, obj::CivecmI2)
 	p = size(obj.endogenous, 2)
 	endocoefs = Array{Float64}(p, p, obj.lags)
-	endocoefs[:,:,1] = 2eye(p) + (obj.α*ρ(obj)'*τ(obj)' + obj.α*δ(obj)'*obj.τ⊥' + obj.ζt'*τ(obj)')[1:p,1:p]
-	endocoefs[:,:,2] = -eye(p) - (obj.α*δ(obj)'*obj.τ⊥' + obj.ζt'*τ(obj)')[1:p,1:p]
+	endocoefs[:,:,1] = 2I + (obj.α*ρ(obj)'*τ(obj)' + obj.α*δ(obj)'*obj.τ⊥' + obj.ζt'*τ(obj)')[1:p,1:p]
+	endocoefs[:,:,2] = -I - (obj.α*δ(obj)'*obj.τ⊥' + obj.ζt'*τ(obj)')[1:p,1:p]
 	if obj.lags > 2
 		Ψ = (obj.Z3\(obj.Z0 - obj.Z2*obj.τ*ρ(obj)*obj.α' - obj.Z1*(obj.τ⊥*δ(obj)*obj.α' + obj.τ*obj.ζt)))'
 		endocoefs[:,:,1] += Ψ[:,1:p]

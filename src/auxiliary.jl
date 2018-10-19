@@ -1,6 +1,6 @@
 function bar!(A::Matrix)
-	qrA = qrfact!(A)
-	return full(qrA[:Q]) / qrA[:R]'
+	qrA = qr!(A)
+	return Matrix(qrA.Q) / qrA.R'
 end
 bar(A::Matrix) = bar!(copy(A))
 
@@ -17,7 +17,7 @@ function gls(Y::Matrix, X::Matrix, H::Matrix, K::SparseMatrixCSC, k::Vector, Ome
 	end
 	lhs = K'kron(H' / Omega * H, Sxx) * K
 	rhs = K'reshape(Sxy / Omega * H - Sxx * G * H' / Omega * H, px * r)
-	return reshape(K * (qrfact!(lhs,pivot=true) \ rhs) + k, px, r)
+	return reshape(K * (qr!(lhs, Val(true)) \ rhs) + k, px, r)
 end
 
 function lagmatrix(A::Matrix, lags::AbstractArray{Int64, 1})
@@ -37,13 +37,13 @@ function lagmatrix(A::Matrix, lags::AbstractArray{Int64, 1})
 end
 
 function mreg(Y::VecOrMat, X::Matrix)
-	coef = qrfact(X, Val{true})\Y
+	coef = qr(X, Val(true))\Y
 	residuals = Y - X*coef
 	(coef, residuals)
 end
 
 ## Normality test
-type NormalityTest
+mutable struct NormalityTest
 	univariate::Vector{Float64}
 	multivariate::Float64
 end
@@ -62,7 +62,7 @@ end
 function normalitytest(res::AbstractMatrix)
 	n = size(res, 1)
 	y = res .- mean(res,1)
-	y = y/sqrtm(y'y/n)
+	y = y/sqrt(y'y/n)
 	rtb1 = mean(y.^3, 1)
 	b2 = mean(y.^4, 1)
 	z1 = Float64[normalitytestz1(n, t) for t in rtb1]
@@ -95,16 +95,18 @@ end
 function rrr!(Y::Matrix, X::Matrix)
 	iT, iX = size(X)
 	iY = size(Y, 2)
-	if iX == 0 return zeros(iY,0), zeros(0), zeros(iX, 0) end
-	svdX = svdfact!(X)
-	svdY = svdfact!(Y)
-	svdZ = svdfact!(svdX[:U]'svdY[:U])
+	if iX == 0
+		return zeros(iY,0), zeros(0), zeros(iX, 0)
+	end
+	svdX = svd!(X)
+	svdY = svd!(Y)
+	svdZ = svd!(svdX.U'svdY.U)
 	Sm1 = zeros(iX)
-	index = svdX[:S] .> 10e-9*maximum(X)
-	Sm1[index] = 1 ./ svdX[:S][index]
-	α = svdY[:V]*Diagonal(svdY[:S])*svdZ[:V]/sqrt(iT)
-	β = sqrt(iT)*svdX[:V]*Diagonal(Sm1)*svdZ[:U]
-	return α, svdZ[:S], β
+	index = svdX.S .> 10e-9*maximum(X)
+	Sm1[index] = 1 ./ svdX.S[index]
+	α = svdY.V*Diagonal(svdY.S)*svdZ.V/sqrt(iT)
+	β = sqrt(iT)*svdX.V*Diagonal(Sm1)*svdZ.U
+	return α, svdZ.S, β
 end
 function rrr!(Y::Matrix, X::Matrix, rank::Int64)
 	α, values, β = rrr(Y, X)
@@ -122,29 +124,29 @@ function student!(X::Matrix)
 	end
 	SX = X'X
 	for i = 1:m
-		X[i,:] = cholfact!((SX - X[i,:]'*X[i,:])/m,:L)[:L]\vec(X[i,:])
+		X[i,:] = cholesky!(Symmetric((SX - X[i,:]'*X[i,:])/m,:L)).L\vec(X[i,:])
 	end
 	return X
 end
 
-function switch!(Y::Matrix, X::Matrix, A::Matrix, B::Matrix, Ω::Matrix, H=eye(prod(size(A))), h = zeros(prod(size(A))); maxiter = 1000, xtol = sqrt(eps()))
+function switch!(Y::Matrix, X::Matrix, A::Matrix, B::Matrix, Ω::Matrix, H=I, h=zeros(prod(size(A))); maxiter = 1000, xtol = sqrt(eps()))
 	# Solve the reduced rank problem Y=XAB'+ε under the restriction vec(A) = Hφ + h by a switching algorithm
 	m, ny = size(Y)
 	nx = size(X, 2)
 	i = 1
-	crit0 = -realmax()
+	crit0 = -floatmax()
 	crit1 = crit0
 	for i = 1:maxiter
-		sqrtΩ = sqrtm(Ω)
+		sqrtΩ = sqrt(Ω)
 		tmpX = kron(sqrtΩ\B,X)
 		φ = (tmpX*H)\(vec(Y/sqrtΩ) - tmpX*h)
 		A[:] = H*φ + h
 
 		B[:] = ((X*A)\Y)'
 
-		Base.LinAlg.copytri!(BLAS.syrk!('U', 'T', 1/m, Y - X*A*B', 0.0, Ω), 'U')
+		LinearAlgebra.copytri!(BLAS.syrk!('U', 'T', 1/m, Y - X*A*B', 0.0, Ω), 'U')
 		crit0 = crit1
-		crit1 = -logdet(cholfact(Ω))
+		crit1 = -logdet(cholesky(Ω))
 		if crit1 - crit0 < -xtol
 			println("Old value: $(crit0)\nNew value: $(crit1)\nIteration :$(i)");
 			error("Convergence criterion cannot decrease")
@@ -156,26 +158,26 @@ function switch!(Y::Matrix, X::Matrix, A::Matrix, B::Matrix, Ω::Matrix, H=eye(p
 	return A, B, Ω, i
 end
 
-# function switch!(Y::Matrix, X::Matrix, A::Matrix, B::Matrix, Ω::Matrix, H=eye(prod(size(A))), h = zeros(prod(size(A))); maxiter = 1000, xtol = sqrt(eps()))
+# function switch!(Y::Matrix, X::Matrix, A::Matrix, B::Matrix, Ω::Matrix, H=I, h = zeros(prod(size(A))); maxiter = 1000, xtol = sqrt(eps()))
 # 	# Solve the reduced rank problem Y=XAB'+ε under the restriction vec(A) = Hφ + h by a switching algorithm
 # 	m, ny = size(Y)
 # 	nx = size(X, 2)
 # 	Sxx = X'X/m
 # 	Sxy = X'Y/m
 # 	i = 1
-# 	crit0 = -realmax()
+# 	crit0 = -floatmax()
 # 	crit1 = crit0
 # 	for i = 1:maxiter
-# 		ΩB = cholfact(Ω)\B
+# 		ΩB = cholesky(Ω)\B
 # 		BΩBSxx = kron(B'ΩB, Sxx)
-# 		φ = qrfact!(H'*BΩBSxx*H,pivot=true)\(H'*(vec(Sxy*ΩB) - BΩBSxx*h))
+# 		φ = qr!(H'*BΩBSxx*H,Val(true))\(H'*(vec(Sxy*ΩB) - BΩBSxx*h))
 # 		A[:] = H*φ + h
 
-# 		B[:] = (qrfact!(A'Sxx*A,pivot=true)\(A'Sxy))'
+# 		B[:] = (qr!(A'Sxx*A,Val(true))\(A'Sxy))'
 
-# 		Ω[:] = Base.LinAlg.syrk_wrapper!('T', Y - X*A*B')/m
+# 		Ω[:] = LinearAlgebra.syrk_wrapper!('T', Y - X*A*B')/m
 # 		crit0 = crit1
-# 		crit1 = -logdet(cholfact(Ω))
+# 		crit1 = -logdet(cholesky(Ω))
 # 		if crit1 - crit0 < -xtol
 # 			println("Old value: $(crit0)\nNew value: $(crit1)\nIteration :$(i)")
 # 			error("Convergence criterion cannot decrease")
@@ -192,16 +194,16 @@ function fS(dX::Matrix{Float64}, Y::Matrix{Float64}, dZ::Matrix{Float64})
 	A = dX[2:end,:]::Matrix{Float64}
 	B = Y[1:size(Y, 1) - 1,:]::Matrix{Float64}
 	C = dZ[2:end,:]::Matrix{Float64}
-	return (A'B)*(cholfact!(B'B)\(B'C))
+	return (A'B)*(cholesky!(B'B)\(B'C))
 end
 
 function I2TraceSimulate(eps::Matrix{Float64}, s::Int64, exo::Matrix{Float64})
 	iT 	= size(eps, 1)
-	w 	= cumsum(eps) / sqrt(iT)
-	w2i = cumsum(w[:,s+1:end]) / iT
+	w 	= cumsum(eps, dims = 1) / sqrt(iT)
+	w2i = cumsum(w[:,s+1:end], dims = 1) / iT
 
 	m1 	= [w[:,1:s] w2i exo]
-	m2 	= [w[:,s+1:end] diff([zeros(1,size(exo, 2)); exo])]
+	m2 	= [w[:,s+1:end] diff([zeros(1,size(exo, 2)); exo], dims = 1)]
 
 	if size(m2, 2) > 0
 		tmpCoef = (m2'm2) \ (m2'm1)
@@ -209,7 +211,7 @@ function I2TraceSimulate(eps::Matrix{Float64}, s::Int64, exo::Matrix{Float64})
 	else
 		g = m1
 	end
-	epsOrth 	= eps / chol(eps'eps / iT)
+	epsOrth 	= eps / cholesky(eps'eps / iT).U
 	tmp1 		= eigvals(fS(epsOrth, g, epsOrth) / iT)
 	if size(eps, 2) > s
 		tmp2 	= eigvals(fS(epsOrth[:,s+1:end], m2, epsOrth[:,s+1:end]) / iT)
