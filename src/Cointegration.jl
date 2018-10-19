@@ -1,6 +1,4 @@
-# Min Civecm kode
-
-module Civecm
+module Cointegration
 using Compat, Distributions
 
 import Base: convert, copy, eigfact, eigvals, show, LinAlg.syrk_wrapper!
