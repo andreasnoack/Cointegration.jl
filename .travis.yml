@@ -10,3 +10,6 @@ julia:
 
 notifications:
   email: andreas@noack.dk
+
+after_success:
+  - julia -e 'cd(Pkg.dir("Cointegration")); Pkg.add("Coverage"); using Coverage; Coveralls.submit(Coveralls.process_folder())'
