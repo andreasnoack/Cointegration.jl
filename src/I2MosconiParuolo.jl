@@ -151,112 +151,112 @@ function estimate(obj::CivecmI2)
     error("No method named %obj.method")
 end
 
-function estimateSwitch(obj::CivecmI2)
-    iT, ip = size(obj.R0)
-    ip1 = size(obj.R1, 2)
+# function estimateSwitch(obj::CivecmI2)
+#     iT, ip = size(obj.R0)
+#     ip1 = size(obj.R1, 2)
 
-    if max(obj.rankI1, obj.rankI2) == 0
-        obj.α[:]     = zeros(ip, obj.rankI1)
-        obj.β[:]     = zeros(ip1, obj.rankI1)
-        obj.ν[:]     = zeros(ip1, obj.rankI1)
-        obj.ξ[:]     = zeros(ip, obj.rankI2)
-        obj.γ[:]     = zeros(ip1, obj.rankI2)
-        obj.σ[:]     = zeros(ip, obj.rankI1)
-    elseif obj.rankI1 == ip
-        tmpFit         = setrank(civecmI1(obj.endogenous, obj.exogenous, obj.lags), obj.rankI1)
-        obj.α[:]     = tmpFit.α
-        obj.β[:]     = tmpFit.β
-        obj.σ[:]     = Matrix{Float64}(I, ip, obj.rankI1)
-        tmpFit2     = [obj.R1 obj.R2 * obj.β] \ obj.R0
-        tmpGam         = tmpFit2[1:ip1,:]'
-        obj.ν[:]     = (obj.α \ (tmpGam - obj.σ * obj.β'))'
-        obj.ξ[:]     = zeros(ip, 0)
-        obj.γ[:]     = zeros(ip1, 0)
-    else
-        tmp1 = sparse(1.0*I, 2 * obj.rankI1 + obj.rankI2 + 1, 2 * obj.rankI1 + obj.rankI2)
-        tmp2 = copy(tmp1[[reshape(reshape(1:2 * obj.rankI1, obj.rankI1, 2)', 2 * obj.rankI1), reshape([(2 * obj.rankI1 + obj.rankI2 + 1) * ones(Int, obj.rankI2) (1:obj.rankI2) + 2 * obj.rankI1]', 2 * obj.rankI2), reshape([(2 * obj.rankI1 + obj.rankI2 + 1) * ones(Int, obj.rankI1) 1:obj.rankI1]', 2 * obj.rankI1)], :])
-        K = kron(tmp2, sparse(1.0*I, size(obj.R1, 2), size(obj.R1, 2)))
+#     if max(obj.rankI1, obj.rankI2) == 0
+#         obj.α[:]     = zeros(ip, obj.rankI1)
+#         obj.β[:]     = zeros(ip1, obj.rankI1)
+#         obj.ν[:]     = zeros(ip1, obj.rankI1)
+#         obj.ξ[:]     = zeros(ip, obj.rankI2)
+#         obj.γ[:]     = zeros(ip1, obj.rankI2)
+#         obj.σ[:]     = zeros(ip, obj.rankI1)
+#     elseif obj.rankI1 == ip
+#         tmpFit         = setrank(civecmI1(obj.endogenous, obj.exogenous, obj.lags), obj.rankI1)
+#         obj.α[:]     = tmpFit.α
+#         obj.β[:]     = tmpFit.β
+#         obj.σ[:]     = Matrix{Float64}(I, ip, obj.rankI1)
+#         tmpFit2     = [obj.R1 obj.R2 * obj.β] \ obj.R0
+#         tmpGam         = tmpFit2[1:ip1,:]'
+#         obj.ν[:]     = (obj.α \ (tmpGam - obj.σ * obj.β'))'
+#         obj.ξ[:]     = zeros(ip, 0)
+#         obj.γ[:]     = zeros(ip1, 0)
+#     else
+#         tmp1 = sparse(1.0*I, 2 * obj.rankI1 + obj.rankI2 + 1, 2 * obj.rankI1 + obj.rankI2)
+#         tmp2 = copy(tmp1[[reshape(reshape(1:2 * obj.rankI1, obj.rankI1, 2)', 2 * obj.rankI1), reshape([(2 * obj.rankI1 + obj.rankI2 + 1) * ones(Int, obj.rankI2) (1:obj.rankI2) + 2 * obj.rankI1]', 2 * obj.rankI2), reshape([(2 * obj.rankI1 + obj.rankI2 + 1) * ones(Int, obj.rankI1) 1:obj.rankI1]', 2 * obj.rankI1)], :])
+#         K = kron(tmp2, sparse(1.0*I, size(obj.R1, 2), size(obj.R1, 2)))
 
-        R2R1 = [obj.R2 obj.R1]
-           tmpX = [obj.R2 * obj.β + obj.R1 * obj.ν obj.R1 * obj.γ obj.R1 * obj.β]
-        tmpCoef = tmpX \ obj.R0
-        mOmega = Matrix{Float64}(I, ip, ip)
-        tmpGLS = gls(obj.R0, [obj.R2 obj.R1], [obj.α obj.ξ obj.σ], K, [], mOmega)
-        for k = 1:20
-            # Iterative procedure
-            # Initialisation
-            if obj.rankI1 == 0
-                obj.α[:]     = zeros(ip, 0)
-                obj.β[:]     = zeros(ip1, 0)
-                obj.ν[:]         = zeros(ip1, 0)
-                obj.γ[:]     = rrr(obj.R0, obj.R1, obj.rankI2)[3]
-                obj.ξ[:]         = ((obj.R1 * obj.γ) \ obj.R0)' #'
-                obj.σ[:]     = zeros(ip, 0)
-                mOmega = residualvariance(obj)
-            else
-            #if ip == sum(obj.rank)
-                if k == 1
-                    tmpFit = setrank(civecmI1(obj.endogenous, obj.exogenous, obj.lags), obj.rankI1+ obj.rankI2)
-                    obj.α[:]     = tmpFit.α[:,1:obj.rankI1]
-                    obj.β[:]     = tmpFit.β[:,1:obj.rankI1]
-                    # tmpFit2     = mreg(obj.R0, [obj.R1 obj.R2 * obj.β])[1]
-                    # tmpGam         = copy(tmpFit2[1:ip1,:])'
-                    obj.γ[:]     = tmpFit.β[:,obj.rankI1+1:obj.rankI1+obj.rankI2]
-                    # obj.σ     = Matrix{Float64}(undef, ip, obj.rankI1)
-                    obj.σ[:]    = Matrix{Float64}(undef, ip, obj.rankI1)
-                    obj.ν[:]    = Matrix(qr!([obj.β obj.γ]).Q)[:,end-obj.rankI1+1:end]
-                    # obj.ν         = (obj.α \ (tmpGam - obj.σ * obj.β'))'
-                    obj.ξ[:]     = Matrix{Float64}(undef, ip, obj.rankI2)
-                    mOmega         = residualvariance(obj)
-                else
-                    obj.β[:]     = randn(ip1, obj.rankI1)
-                    obj.ν[:]     = randn(ip1, obj.rankI1)
-                    obj.γ[:]     = randn(ip1, obj.rankI2)
-                    mOmega         = residualvariance(obj)
-                end
-            end
-            # else
-                # m = min(obj.rankI1, ip - obj.rankI1 - obj.rankI2);
-                 # tmpFit = CivecmI2alt(obj.endogenous, obj.exogenous, obj.lags).setrank([obj.rankI1 - m, obj.rankI2 + 2 * m]);
-                # [obj.α, obj.β, obj.ν, obj.ξ, obj.γ, obj.σ] = CivecmI2alt.initialPars(tmpFit.α, tmpFit.β, tmpFit.ν, tmpFit.ξ, tmpFit.γ, tmpFit.σ, 1, m)
+#         R2R1 = [obj.R2 obj.R1]
+#            tmpX = [obj.R2 * obj.β + obj.R1 * obj.ν obj.R1 * obj.γ obj.R1 * obj.β]
+#         tmpCoef = tmpX \ obj.R0
+#         mOmega = Matrix{Float64}(I, ip, ip)
+#         tmpGLS = gls(obj.R0, [obj.R2 obj.R1], [obj.α obj.ξ obj.σ], K, [], mOmega)
+#         for k = 1:20
+#             # Iterative procedure
+#             # Initialisation
+#             if obj.rankI1 == 0
+#                 obj.α[:]     = zeros(ip, 0)
+#                 obj.β[:]     = zeros(ip1, 0)
+#                 obj.ν[:]         = zeros(ip1, 0)
+#                 obj.γ[:]     = rrr(obj.R0, obj.R1, obj.rankI2)[3]
+#                 obj.ξ[:]         = ((obj.R1 * obj.γ) \ obj.R0)' #'
+#                 obj.σ[:]     = zeros(ip, 0)
+#                 mOmega = residualvariance(obj)
+#             else
+#             #if ip == sum(obj.rank)
+#                 if k == 1
+#                     tmpFit = setrank(civecmI1(obj.endogenous, obj.exogenous, obj.lags), obj.rankI1+ obj.rankI2)
+#                     obj.α[:]     = tmpFit.α[:,1:obj.rankI1]
+#                     obj.β[:]     = tmpFit.β[:,1:obj.rankI1]
+#                     # tmpFit2     = mreg(obj.R0, [obj.R1 obj.R2 * obj.β])[1]
+#                     # tmpGam         = copy(tmpFit2[1:ip1,:])'
+#                     obj.γ[:]     = tmpFit.β[:,obj.rankI1+1:obj.rankI1+obj.rankI2]
+#                     # obj.σ     = Matrix{Float64}(undef, ip, obj.rankI1)
+#                     obj.σ[:]    = Matrix{Float64}(undef, ip, obj.rankI1)
+#                     obj.ν[:]    = Matrix(qr!([obj.β obj.γ]).Q)[:,end-obj.rankI1+1:end]
+#                     # obj.ν         = (obj.α \ (tmpGam - obj.σ * obj.β'))'
+#                     obj.ξ[:]     = Matrix{Float64}(undef, ip, obj.rankI2)
+#                     mOmega         = residualvariance(obj)
+#                 else
+#                     obj.β[:]     = randn(ip1, obj.rankI1)
+#                     obj.ν[:]     = randn(ip1, obj.rankI1)
+#                     obj.γ[:]     = randn(ip1, obj.rankI2)
+#                     mOmega         = residualvariance(obj)
+#                 end
+#             end
+#             # else
+#                 # m = min(obj.rankI1, ip - obj.rankI1 - obj.rankI2);
+#                  # tmpFit = CivecmI2alt(obj.endogenous, obj.exogenous, obj.lags).setrank([obj.rankI1 - m, obj.rankI2 + 2 * m]);
+#                 # [obj.α, obj.β, obj.ν, obj.ξ, obj.γ, obj.σ] = CivecmI2alt.initialPars(tmpFit.α, tmpFit.β, tmpFit.ν, tmpFit.ξ, tmpFit.γ, tmpFit.σ, 1, m)
 
 
-            ll = -1.0e9
-            ll0 = ll
+#             ll = -1.0e9
+#             ll0 = ll
 
-            for j = 0:obj.maxiter
-                # The AC-step
-                # println(obj.β)
-                tmpX[:]         = [obj.R2 * obj.β + obj.R1 * obj.ν obj.R1 * obj.γ obj.R1 * obj.β]
-                tmpCoef[:]         = qrpfact!(tmpX'tmpX) \ (tmpX'obj.R0)
-                obj.α[:]     = tmpCoef[1:obj.rankI1, :]'
-                obj.ξ[:]         = tmpCoef[obj.rankI1 + 1:(obj.rankI1 + obj.rankI2),:]'
-                obj.σ[:]     = tmpCoef[obj.rankI1 + obj.rankI2 + 1:end, :]'
-                # The CC Step ala Rocco
-                tmpGLS[:]         = gls(obj.R0, R2R1, [obj.α obj.ξ obj.σ], K, [], mOmega)
-                obj.ν[:]         = tmpGLS[ip1 + 1:, 1:obj.rankI1]
-                obj.γ[:]     = tmpGLS[ip1 + 1:, obj.rankI1 + 1:obj.rankI1 + obj.rankI2]
-                obj.β[:]     = tmpGLS[ip1 + 1:, obj.rankI1 + obj.rankI2 + 1:]
-                # Residual variable step
-                ll0         = ll
-                mOmega[:]    = residualvariance(obj)
-                ll             = -0.5 * logdet(cholesky(mOmega))
-                # @printf("Average log-likelihood value: %f\n", ll)
-                if abs(ll - ll0) < obj.llConvCrit
-                    @printf("Convergence in %d iterations.\n", j - 1)
-                    break
-                end
-            end
-            if norm(obj.ν) > 1.0e6; println(obj.α, obj.ν, obj.α*obj.ν'); end
-            if
-                abs(ll - ll0) < obj.llConvCrit
-                break
-            end
-            print("Om igen!")
-        end
-    end
-    return obj
-end
+#             for j = 0:obj.maxiter
+#                 # The AC-step
+#                 # println(obj.β)
+#                 tmpX[:]         = [obj.R2 * obj.β + obj.R1 * obj.ν obj.R1 * obj.γ obj.R1 * obj.β]
+#                 tmpCoef[:]         = qrpfact!(tmpX'tmpX) \ (tmpX'obj.R0)
+#                 obj.α[:]     = tmpCoef[1:obj.rankI1, :]'
+#                 obj.ξ[:]         = tmpCoef[obj.rankI1 + 1:(obj.rankI1 + obj.rankI2),:]'
+#                 obj.σ[:]     = tmpCoef[obj.rankI1 + obj.rankI2 + 1:end, :]'
+#                 # The CC Step ala Rocco
+#                 tmpGLS[:]         = gls(obj.R0, R2R1, [obj.α obj.ξ obj.σ], K, [], mOmega)
+#                 obj.ν[:]         = tmpGLS[ip1 + 1:, 1:obj.rankI1]
+#                 obj.γ[:]     = tmpGLS[ip1 + 1:, obj.rankI1 + 1:obj.rankI1 + obj.rankI2]
+#                 obj.β[:]     = tmpGLS[ip1 + 1:, obj.rankI1 + obj.rankI2 + 1:]
+#                 # Residual variable step
+#                 ll0         = ll
+#                 mOmega[:]    = residualvariance(obj)
+#                 ll             = -0.5 * logdet(cholesky(mOmega))
+#                 # @printf("Average log-likelihood value: %f\n", ll)
+#                 if abs(ll - ll0) < obj.llConvCrit
+#                     @printf("Convergence in %d iterations.\n", j - 1)
+#                     break
+#                 end
+#             end
+#             if norm(obj.ν) > 1.0e6; println(obj.α, obj.ν, obj.α*obj.ν'); end
+#             if
+#                 abs(ll - ll0) < obj.llConvCrit
+#                 break
+#             end
+#             print("Om igen!")
+#         end
+#     end
+#     return obj
+# end
 
 function estimateτSwitch(obj::CivecmI2)
     # Dimentions
