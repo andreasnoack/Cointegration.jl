@@ -1,4 +1,4 @@
 [![Build Status](https://travis-ci.org/andreasnoack/Cointegration.jl.svg?branch=master)](https://travis-ci.org/andreasnoack/Cointegration.jl)
-[![Coverage Status](https://coveralls.io/repos/github/andreasnoack/Cointegration.jl/badge.svg?branch=master&bust=1)](https://coveralls.io/github/andreasnoack/Cointegration.jl?branch=master)
+[![codecov](https://codecov.io/gh/andreasnoack/Cointegration.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/andreasnoack/Cointegration.jl)
 
 ## Cointegration in Vector Autoregressive Models
