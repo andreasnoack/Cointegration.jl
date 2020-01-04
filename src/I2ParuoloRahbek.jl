@@ -344,20 +344,21 @@ function ranktest(obj::CivecmI2)
     tmpTrace
 end
 
-function ranktest(obj::CivecmI2, reps::Int64)
+function ranktest(rng::AbstractRNG, obj::CivecmI2, reps::Int64)
     vals  = ranktest(obj)
-    pvals = ranktestPvaluesSimluateAsymp(obj, vals, reps)
+    pvals = ranktestPvaluesSimluateAsymp(rng, obj, vals, reps)
     return (vals, pvals)
 end
+ranktest(obj::CivecmI2, reps::Int64) = ranktest(Random.default_rng(), obj, reps)
 
-function ranktestPvaluesSimluateAsymp(obj::CivecmI2, testvalues::Matrix, reps::Int64)
+function ranktestPvaluesSimluateAsymp(rng::AbstractRNG, obj::CivecmI2, testvalues::Matrix, reps::Int64)
     (iT, ip) = size(obj.endogenous)
     pvals = zeros(ip, ip + 1)
     rankdist = zeros(reps)
     for i = 0:ip - 1
         for j = 0:ip - i
             for k = 1:reps
-                rankdist[k] = I2TraceSimulate(randn(iT, ip - i), j, obj.exogenous)
+                rankdist[k] = I2TraceSimulate(randn(rng, iT, ip - i), j, obj.exogenous)
             end
             pvals[i + 1, i + j + 1] = mean(rankdist .> testvalues[i + 1, i + j + 1])
             @printf("Simulation of model H(%d,%d). %3.2f percent completed.\n", i, j, 100 * (0.5 * i * (i + 1) + i * (ip - i + 1) + j + 1) / (0.5 * ip^2 + 1.5 * ip))
@@ -403,13 +404,15 @@ function residuals(obj::CivecmI2)
     return res
 end
 
-function show(io::IO, obj::CivecmI2)
-    println("β':")
-    println(β(obj)')
-    println("τ⊥δ:")
-    println(obj.τ⊥*δ(obj)) #'
-    println("τ':")
-    println(τ(obj)')
+function show(io::IO, ::MIME"text/plain", obj::CivecmI2)
+    println(io, "β':")
+    show(io, MIME"text/plain"(), copy(β(obj)'))
+
+    println(io, "\n\nτ⊥δ:")
+    show(IOContext(io, :compact=>true), MIME"text/plain"(), obj.τ⊥*δ(obj)) #'
+
+    println(io, "\n\nτ':")
+    show(io, MIME"text/plain"(), copy(τ(obj)'))
 end
 
 # Coefficients

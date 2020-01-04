@@ -202,9 +202,9 @@ function fS(dX::Matrix{Float64}, Y::Matrix{Float64}, dZ::Matrix{Float64})
 end
 
 function I2TraceSimulate(eps::Matrix{Float64}, s::Int64, exo::Matrix{Float64})
-    iT     = size(eps, 1)
-    w     = cumsum(eps, dims = 1) / sqrt(iT)
-    w2i = cumsum(w[:,s+1:end], dims = 1) / iT
+    iT  = size(eps, 1)
+    w   = cumsum(eps, dims = 1) / sqrt(iT)
+    w2i = cumsum(w[:, (s + 1):end], dims = 1) / iT
 
     m1     = [w[:,1:s] w2i exo]
     m2     = [w[:,s+1:end] diff([zeros(1,size(exo, 2)); exo], dims = 1)]

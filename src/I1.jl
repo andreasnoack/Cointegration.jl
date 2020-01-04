@@ -109,33 +109,14 @@ copy(obj::CivecmI1) = CivecmI1(copy(obj.endogenous),
                                copy(obj.R0),
                                copy(obj.R1))
 
-function show(io::IO, obj::CivecmI1)
-    @printf("\n   ")
-    for i = 1:size(obj.α, 2)
-        @printf(" α(%d)", i)
-    end
-    println()
-    for i = 1:size(obj.R0, 2)
-        @printf("V%d:", i)
-        for j = 1:size(obj.α, 2)
-            @printf("%9.3f", obj.α[i,j])
-        end
-        println()
-    end
-    @printf("\n         ")
-    for i = 1:size(obj.R1, 2)
-        @printf("%9s", string("V", i))
-    end
-    println()
-    for i = 1:size(obj.β, 2)
-        @printf("β(%d): ", i)
-        for j = 1: 1:size(obj.R1, 2)
-            @printf("%9.3f", obj.β[j,i])
-        end
-        println()
-    end
-    println("\nPi:")
-    Base.print_matrix(io, obj.α*obj.β')
+function show(io::IO, ::MIME"text/plain", obj::CivecmI1)
+    print(io, summary(obj))
+    print(io, "\n\nα:\n")
+    show(io, MIME"text/plain"(), obj.α)
+    print(io, "\n\nβᵀ:\n")
+    show(io, MIME"text/plain"(), copy(obj.β'))
+    print(io, "\n\nΠ:\n")
+    show(io, MIME"text/plain"(), obj.α*obj.β')
 end
 
 function setrank(obj::CivecmI1, rank::Int64)
@@ -173,9 +154,9 @@ function estimateSwitch(obj::CivecmI1)
     for i = 1:obj.maxiter
         OmegaInv = inv(cholesky!(residualvariance(obj)))
         aoas11 = kron(obj.α' * OmegaInv * obj.α, S11)
-        phi = qr!(obj.Hβ' * aoas11 * obj.Hβ, Val(true)) \
+        φ = qr!(obj.Hβ' * aoas11 * obj.Hβ, Val(true)) \
             (obj.Hβ' * (vec(S10 * OmegaInv * obj.α) - aoas11 * obj.hβ))
-        obj.β = reshape(obj.Hβ * phi + obj.hβ, size(obj.β)...)
+        obj.β = reshape(obj.Hβ * φ + obj.hβ, size(obj.β)...)
         γ = qr!(obj.Hα' * kron(OmegaInv, obj.β' * S11 * obj.β) * obj.Hα, Val(true)) \
             (obj.Hα' * vec(obj.β' * S10 * OmegaInv))
         obj.α = reshape(obj.Hα * γ, size(obj.α, 2), size(obj.α, 1))'
@@ -187,7 +168,7 @@ function estimateSwitch(obj::CivecmI1)
     return obj
 end
 
-function ranktest(obj::CivecmI1, reps::Int64)
+function ranktest(rng::AbstractRNG, obj::CivecmI1, reps::Int)
     _, svdvals, _ = rrr(obj.R0, obj.R1)
     tmpTrace = -size(obj.Z0, 1) * reverse(cumsum(reverse(log.(1 .- svdvals.^2))))
     tmpPVals = zeros(size(tmpTrace))
@@ -196,13 +177,14 @@ function ranktest(obj::CivecmI1, reps::Int64)
     for i = 1:size(tmpTrace, 1)
         print("Simulation of model H(", i, ")\r")
         for k = 1:reps
-            rankdist[k] = I2TraceSimulate(randn(iT, ip - i + 1), ip - i + 1, obj.exogenous)
+    #         rankdist[k] = I2TraceSimulate(randn(iT, ip - i + 1), ip - i + 1, obj.exogenous)
         end
         tmpPVals[i] = mean(rankdist .> tmpTrace[i])
     end
     print("                                                    \r")
     return TraceTest(tmpTrace, tmpPVals)
 end
+ranktest(obj::CivecmI1, reps::Int) = ranktest(Random.default_rng(), obj, reps)
 ranktest(obj::CivecmI1) = ranktest(obj, 10000)
 
 residuals(obj::CivecmI1) = obj.R0 - obj.R1*obj.β*obj.α'
@@ -224,9 +206,9 @@ mutable struct TraceTest
 end
 
 function show(io::IO, obj::TraceTest)
-    @printf("\n Rank    Value  p-value\n")
+    @printf(io, "\n Rank    Value  p-value\n")
     for i = 1:length(obj.values)
-        @printf("%5d%9.3f%9.3f\n", i-1, obj.values[i], obj.pvalues[i])
+        @printf(io, "%5d%9.3f%9.3f\n", i-1, obj.values[i], obj.pvalues[i])
     end
 end
 
