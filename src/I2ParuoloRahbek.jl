@@ -355,13 +355,16 @@ function ranktestPvaluesSimluateAsymp(rng::AbstractRNG, obj::CivecmI2, testvalue
     (iT, ip) = size(obj.endogenous)
     pvals = zeros(ip, ip + 1)
     rankdist = zeros(reps)
+
+    # Handling the progress bar
+    prgr = Progress(ip*(ip + 1)>>1, 0.5, "Simulating I(2) rank test...")
     for i = 0:ip - 1
         for j = 0:ip - i
+            next!(prgr)
             for k = 1:reps
                 rankdist[k] = I2TraceSimulate(randn(rng, iT, ip - i), j, obj.exogenous)
             end
             pvals[i + 1, i + j + 1] = mean(rankdist .> testvalues[i + 1, i + j + 1])
-            @printf("Simulation of model H(%d,%d). %3.2f percent completed.\n", i, j, 100 * (0.5 * i * (i + 1) + i * (ip - i + 1) + j + 1) / (0.5 * ip^2 + 1.5 * ip))
         end
     end
     return pvals
