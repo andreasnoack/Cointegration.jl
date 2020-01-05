@@ -61,13 +61,13 @@ end
 
 function normalitytest(res::AbstractMatrix)
     n = size(res, 1)
-    y = res .- mean(res,1)
+    y = res .- mean(res, dims=1)
     y = y/sqrt(y'y/n)
-    rtb1 = mean(y.^3, 1)
-    b2 = mean(y.^4, 1)
-    z1 = Float64[normalitytestz1(n, t) for t in rtb1]
-    z2 = Float64[normalitytestz2(n, rtb1[t]*rtb1[t], b2[t]) for t in 1:length(b2)]
-    return NormalityTest(z1.^2 + z2.^2, dot(z1,z1) + dot(z2,z2))
+    rtb1 = mean(y.^3, dims=1)
+    b2 = mean(y.^4, dims=1)
+    z1 = Float64[normalitytestz1(n, t) for t in vec(rtb1)]
+    z2 = Float64[normalitytestz2(n, rtb1[t]^2, b2[t]) for t in 1:length(b2)]
+    return NormalityTest(z1.^2 + z2.^2, z1'z1 + z2'z2)
 end
 
 function normalitytestz1(n::Integer, rtb1::Real)

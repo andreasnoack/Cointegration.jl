@@ -27,7 +27,14 @@ mutable struct CivecmI2 <: AbstractCivecm
     R2::Matrix{Float64}
 end
 
-function civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags::Int64, rankI1::Int64, rankI2::Int64)
+function civecmI2(
+    endogenous::Matrix{Float64};
+    exogenous::Matrix{Float64}=Matrix{Float64}(undef, size(endogenous, 1), 0),
+    lags::Int64=2,
+    rankI1::Int64=size(endogenous, 2),
+    rankI2::Int64=0
+    )
+
     ss, p = size(endogenous)
     iT = ss - lags
     pexo = size(exogenous, 2)
@@ -58,17 +65,14 @@ function civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
                     Matrix{Float64}(undef, iT, p),
                     Matrix{Float64}(undef, iT, p1),
                     Matrix{Float64}(undef, iT, p1))
-    auxilliaryMatrices(obj)
-    # estimate(obj)
+    auxilliaryMatrices!(obj)
+    # estimate!(obj)
     return obj
 end
-civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags::Int64) = civecmI2(endogenous, exogenous, lags, size(endogenous, 2), 0)
-civecmI2(endogenous::Matrix{Float64}, lags::Int64) = civecmI2(endogenous, zeros(size(endogenous, 1), 0), lags)
-civecmI2(endogenous::Matrix{Float64}, exogenous::UnitRange, lags::Int64) = civecmI2(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
 
 endogenous(obj::CivecmI2) = obj.endogenous
 
-function auxilliaryMatrices(obj::CivecmI2)
+function auxilliaryMatrices!(obj::CivecmI2)
     iT, p = size(obj.Z0)
     pexo = size(obj.exogenous, 2)
     for j = 1:p
@@ -142,32 +146,57 @@ function setrank(obj::CivecmI2, rankI1::Int64, rankI2::Int64)
     if rankI1 + rankI2 > size(obj.endogenous, 2)
         error("Illegal choice of rank")
     else
-        p = size(obj.endogenous, 2)
-        p1 = p + size(obj.exogenous, 2)
-        obj.rankI1 = rankI1
-        obj.rankI2 = rankI2
-        obj.α     = Matrix{Float64}(undef, p , rankI1)
-        obj.ρδ     = Matrix{Float64}(undef, p1, rankI1)
-        obj.Hρδ = Matrix{Float64}(I, p1*rankI1, p1*rankI1)
-        obj.hρδ = zeros(p1*rankI1)
-        obj.τ     = Matrix{Float64}(undef, p1, rankI1 + rankI2)
-        obj.Hτ     = Matrix{Float64}(I, p1*(rankI1 + rankI2), p1*(rankI1 + rankI2))
-        obj.hτ     = zeros(p1*(rankI1 + rankI2))
-        obj.τ⊥     = Matrix{Float64}(undef, p1, p1 - rankI1 - rankI2)
-        obj.ζt     = Matrix{Float64}(undef, rankI1 + rankI2, p)
+        p   = size(obj.endogenous, 2)
+        p1  = p + size(obj.exogenous, 2)
+        α   = Matrix{Float64}(undef, p , rankI1)
+        ρδ  = Matrix{Float64}(undef, p1, rankI1)
+        Hρδ = Matrix{Float64}(I, p1*rankI1, p1*rankI1)
+        hρδ = zeros(p1*rankI1)
+        τ   = Matrix{Float64}(undef, p1, rankI1 + rankI2)
+        Hτ  = Matrix{Float64}(I, p1*(rankI1 + rankI2), p1*(rankI1 + rankI2))
+        hτ  = zeros(p1*(rankI1 + rankI2))
+        τ⊥  = Matrix{Float64}(undef, p1, p1 - rankI1 - rankI2)
+        ζt  = Matrix{Float64}(undef, rankI1 + rankI2, p)
+
+        newobj = CivecmI2(obj.endogenous,
+                          obj.exogenous,
+                          obj.lags,
+                          rankI1,
+                          rankI2,
+                          α,
+                          ρδ,
+                          Hρδ,
+                          hρδ,
+                          τ,
+                          Hτ,
+                          hτ,
+                          τ⊥,
+                          ζt,
+                          obj.llConvCrit,
+                          obj.maxiter,
+                          obj.convCount,
+                          obj.method,
+                          obj.verbose,
+                          obj.Z0,
+                          obj.Z1,
+                          obj.Z2,
+                          obj.Z3,
+                          obj.R0,
+                          obj.R1,
+                          obj.R2)
     end
-    return estimate(obj)
+    return estimate!(newobj)
 end
 
-function estimate(obj::CivecmI2)
+function estimate!(obj::CivecmI2)
     if obj.method == "ParuoloRahbek"
         # if obj.rankI1 == 0 || obj.rankI2 == size(obj.R0,2) - obj.rankI1 return estimate2step(obj) end
-        return estimateτSwitch(obj)
+        return estimateτSwitch!(obj)
     end
     error("No method named %obj.method")
 end
 
-function estimateτSwitch(obj::CivecmI2)
+function estimateτSwitch!(obj::CivecmI2)
     # Timer
     tt = time()
 
@@ -187,18 +216,18 @@ function estimateτSwitch(obj::CivecmI2)
     condS = cond([obj.R2 obj.R1] |> t -> t't)
 
     # Memory allocation
-    Rτ         = Matrix{Float64}(undef, iT, p1)
+    Rτ      = Matrix{Float64}(undef, iT, p1)
     R1τ     = Matrix{Float64}(undef, iT, rs)
-    workX     = Matrix{Float64}(undef, rs, p1)
-    mX         = Matrix{Float64}(undef, iT, p1)
-    workY     = Matrix{Float64}(undef, rs, p)
-    mY         = Matrix{Float64}(undef, iT, p)
-    α⊥         = Matrix{Float64}(undef, p , p - obj.rankI1)
+    workX   = Matrix{Float64}(undef, rs, p1)
+    mX      = Matrix{Float64}(undef, iT, p1)
+    workY   = Matrix{Float64}(undef, rs, p)
+    mY      = Matrix{Float64}(undef, iT, p)
+    α⊥      = Matrix{Float64}(undef, p , p - obj.rankI1)
     workRRR = Vector{Float64}(undef, obj.rankI1)
-    ρ         = view(obj.ρδ, 1:rs, 1:obj.rankI1)
-    ρort     = Matrix{Float64}(undef, rs, rs - obj.rankI1)
-    δ         = view(obj.ρδ, rs+1:p1, 1:obj.rankI1)
-    φ_ρδ     = Matrix{Float64}(undef, size(obj.Hρδ, 2), obj.rankI1)
+    ρ       = view(obj.ρδ, 1:rs, 1:obj.rankI1)
+    ρort    = Matrix{Float64}(undef, rs, rs - obj.rankI1)
+    δ       = view(obj.ρδ, rs+1:p1, 1:obj.rankI1)
+    φ_ρδ    = Matrix{Float64}(undef, size(obj.Hρδ, 2), obj.rankI1)
     φ_τ     = Vector{Float64}(undef, size(obj.Hτ, 2))
     res     = Matrix{Float64}(undef, iT, p)
     Ω       = Matrix{Float64}(I, p, p)
@@ -210,7 +239,7 @@ function estimateτSwitch(obj::CivecmI2)
     ABCD    = Matrix{Float64}(undef, p1*rs, p1*rs)
 
     # Choose initial values from two step estimation procedure
-    estimate2step(obj)
+    estimate2step!(obj)
     # obj.τ[:] = obj.Hτ*randn(size(obj.Hτ, 2)) + obj.hτ
     # obj.τ[:] = obj.Hτ*(obj.Hτ\(vec(obj.τ) - obj.hτ)) + obj.hτ # but choose a value within the restrited parameter space by projecting onto it
 
@@ -310,7 +339,7 @@ function estimateτSwitch(obj::CivecmI2)
     return obj
 end
 
-function estimate2step(obj)
+function estimate2step!(obj)
     _, Res0 = mreg(obj.R0, obj.R1)
     _, Res1 = mreg(obj.R2, obj.R1)
     obj.α[:], vals, β = rrr(Res0, Res1, obj.rankI1)

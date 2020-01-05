@@ -34,7 +34,7 @@ simulate(obj::VAR, iT::Integer) = simulate(obj, randn(iT, size(obj.endogenous, 2
 
 function convert(::Type{VAR}, obj::CivecmI1)
     p = size(obj.endogenous, 2)
-    endocoefs = Array{Float64}(p, p, obj.lags)
+    endocoefs = Array{Float64}(undef, p, p, obj.lags)
     endocoefs[:,:,1] = obj.α*obj.β' + I
     if obj.lags > 1
         endocoefs[:,:,1] += obj.Γ[:,1:p]

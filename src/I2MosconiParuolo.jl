@@ -1,4 +1,4 @@
-mutable struct CivecmI2 <: AbstractCivecm
+struct CivecmI2 <: AbstractCivecm
     endogenous::Matrix{Float64}
     exogenous::Matrix{Float64}
     lags::Int64
@@ -22,7 +22,14 @@ mutable struct CivecmI2 <: AbstractCivecm
     R2::Matrix{Float64}
 end
 
-function civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags::Int64, rankI1::Int64, rankI2::Int64)
+function civecmI2(
+    endogenous::Matrix{Float64};
+    exogenous::Matrix{Float64}=Matrix{Float64}(undef, size(endogenous, 1), 0),
+    lags::Int64=2,
+    rankI1::Int64=size(endogenous, 2),
+    rankI2::Int64=0
+    )
+
     ss, p = size(endogenous)
     iT = ss - lags
     pexo = size(exogenous, 2)
@@ -48,15 +55,12 @@ function civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags:
                     Matrix{Float64}(undef, iT, p),
                     Matrix{Float64}(undef, iT, p1),
                     Matrix{Float64}(undef, iT, p1))
-    auxilliaryMatrices(obj)
-    estimate(obj)
+    auxilliaryMatrices!(obj)
+    estimate!(obj)
     return obj
 end
-civecmI2(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags::Int64) = civecmI2(endogenous, exogenous, lags, size(endogenous, 2), 0)
-civecmI2(endogenous::Matrix{Float64}, lags::Int64) = civecmI2(endogenous, zeros(size(endogenous, 1), 0), lags)
-civecmI2(endogenous::Matrix{Float64}, exogenous::Range1, lags::Int64) = civecmI2(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
 
-function auxilliaryMatrices(obj::CivecmI2)
+function auxilliaryMatrices!(obj::CivecmI2)
     iT, p = size(obj.Z0)
     pexo = size(obj.exogenous, 2)
     for j = 1:p
@@ -136,22 +140,22 @@ function setrank(obj::CivecmI2, rankI1::Int64, rankI2::Int64)
         obj.γ = Matrix{Float64}(undef, p1, rankI2)
         obj.σ = Matrix{Float64}(undef, p , rankI1)
     end
-    return estimate(obj)
+    return estimate!(obj)
 end
 
-function estimate(obj::CivecmI2)
+function estimate!(obj::CivecmI2)
     if obj.rankI2 == 0
         R0 = obj.R0 - obj.R1*(obj.R1\obj.R0)
         R1 = obj.R2 - obj.R1*(obj.R1\obj.R2)
         obj.α[:], vals, obj.β[:] = rrr(R0, R1)
         obj.α[:] *= Diagonal(vals)
         Γ = (obj.R1\(obj.R0 - obj.R2*obj.β*obj.α'))'
-    if obj.method == "MP" return estimateSwitch(obj) end
-    if obj.method == "Johansen" return estimateτSwitch(obj) end
+    if obj.method == "MP" return estimateSwitch!(obj) end
+    if obj.method == "Johansen" return estimateτSwitch!(obj) end
     error("No method named %obj.method")
 end
 
-# function estimateSwitch(obj::CivecmI2)
+# function estimateSwitch!(obj::CivecmI2)
 #     iT, ip = size(obj.R0)
 #     ip1 = size(obj.R1, 2)
 
@@ -258,7 +262,7 @@ end
 #     return obj
 # end
 
-function estimateτSwitch(obj::CivecmI2)
+function estimateτSwitch!(obj::CivecmI2)
     # Dimentions
     p = size(obj.R0, 2)
     iT, p1 = size(obj.R2)

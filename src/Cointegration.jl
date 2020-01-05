@@ -14,7 +14,9 @@ import StatsBase: loglikelihood, residuals
 import Distributions: estimate
 import ProgressMeter: Progress, next!
 
-export β, τ, ρ, δ, bootstrap, civecmI1, civecmI2, civecmI2alt, companion, estimate, lrtest, ranktest, setrank, show, simulate, VAR
+export β, τ, ρ, δ, bootstrap, civecmI1, civecmI2, civecmI2alt, companion, estimate, lrtest, ranktest, setrank, simulate, VAR
+# From StatsBase
+export residuals
 
 include("auxiliary.jl")
 include("abstract.jl")

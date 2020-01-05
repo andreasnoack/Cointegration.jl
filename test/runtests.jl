@@ -1,4 +1,4 @@
-using Cointegration, Test, Random
+using Cointegration, Test, LinearAlgebra, StatsBase, Statistics, Random, CSV
 
 @testset "Basic" begin
     k = 5
@@ -8,7 +8,7 @@ using Cointegration, Test, Random
     X = cumsum(randn(rng, n, k), dims = 1)
 
     @testset "I(1) model" begin
-        f = civecmI1(X, 2)
+        f = civecmI1(X, lags=2)
         @test sprint((io, t) -> show(io, MIME"text/plain"(), t), f) == """
 Cointegration.CivecmI1
 
@@ -74,7 +74,7 @@ Cointegration.CivecmI1
     end
 
     @testset "I(2) model" begin
-        f = civecmI2(X, 2)
+        f = civecmI2(X, lags=2)
         rt = ranktest(f)
         @test sprint((io, t) -> show(io, MIME"text/plain"(), t), rt) == """
 5×6 Array{Float64,2}:
@@ -112,5 +112,71 @@ Cointegration.CivecmI1
 2×5 Array{Float64,2}:
  -0.118063  -0.037522  -0.378734  -0.0603913  0.0813303
   0.179069   0.322215   0.133885  -0.385039   0.850675 """
+    end
+end
+
+@testset "Illustrative examples from Johansen's book" begin
+    danish_df  = CSV.read(joinpath(@__DIR__(), "..", "data", "danish.csv"))
+    danish_mat = [danish_df.log_real_money danish_df.log_real_income danish_df.bond_rate danish_df.deposit_rate]
+
+    # Create constant term and seasonals.
+    cnst = [ones(55) repeat(Matrix{Float64}(I, 4, 3), 14)[1:55, :]]
+    # Johansen makes the seasonals orthogonal to the constant term
+    proj(v, u) = (v'u)/(u'u)*u
+    for k in 2:4
+        cnst[:, k] .-= sum(proj(cnst[:, k], cnst[:, j]) for j in 1:k-1)
+    end
+
+    f = civecmI1(danish_mat, unrestricted=cnst, lags=2)
+
+    @testset "Table 2.1" begin
+        @test f.Π[:,1:4] ≈ [-0.181  0.110 -1.042  0.638
+                             0.186 -0.309  0.658 -0.648
+                             0.014 -0.018  0.082 -0.167
+                            -0.004  0.020  0.143 -0.314] atol=2e-3
+    end
+
+    @testset "Table 2.2" begin
+        @test f.Γ[:,1:4] ≈ [0.195 -0.096 -0.138 -0.462
+                            0.504 -0.045 -0.377  0.060
+                            0.051  0.136  0.301  0.253
+                            0.069 -0.022  0.227  0.265] atol=2e-3
+    end
+
+    @testset "Table 2.3" begin
+        @testset "The constant" begin
+            @test f.Γ[:, 5] ≈ [1.583, -0.390, -0.064, -0.071] atol=2e-3
+        end
+
+        @testset "The seasonal" begin
+            @test_broken f.Γ[:, 6:8] ≈ [-0.023  0.016 -0.039
+                                        -0.019 -0.007 -0.032
+                                        -0.003 -0.007 -0.007
+                                        -0.002  0.001 -0.003]
+        end
+    end
+
+    @testset "Table 2.4" begin
+        @test cor(residuals(f)) ≈ [ 1.00  0.53 -0.45 -0.31
+                                    0.53  1.00 -0.08 -0.24
+                                   -0.45 -0.08  1.00  0.25
+                                   -0.31 -0.24  0.25  1.00] atol=1e-2
+    end
+
+    @testset "Table 2.5" begin
+        # FIXME! ARCH and JB tests not implemented yet
+        @test mapslices(skewness, residuals(f), dims=1) ≈ [0.552 0.524 -0.297 0.415] atol=1e-3
+        @test mapslices(kurtosis, residuals(f), dims=1) ≈ [-0.075 -0.087 0.576 0.562] atol=1e-3
+    end
+
+    @testset "Table 2.6" begin
+        @test sort(eigvals(f), by=real, rev=true) ≈ [ 0.9725,
+                                                     0.7552 - 0.1571im,
+                                                     0.7552 + 0.1571im,
+                                                     0.6051,
+                                                     0.5955 - 0.3143im,
+                                                     0.5955 + 0.3143im,
+                                                    -0.1425 - 0.2312im,
+                                                    -0.1425 + 0.2312im] atol=1e-3
     end
 end
