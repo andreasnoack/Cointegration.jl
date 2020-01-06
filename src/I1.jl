@@ -218,8 +218,12 @@ function estimateSwitch(obj::CivecmI1)
             (obj.Hα' * vec(obj.β' * S10 * OmegaInv))
         obj.α = reshape(obj.Hα * γ, size(obj.α, 2), size(obj.α, 1))'
         ll1 = loglikelihood(obj)
-        if obj.verbose @printf("log-likelihood: %f\n", ll1) end
-        if abs(ll1 - ll0) < obj.llConvCrit break end
+        if obj.verbose
+            @printf("log-likelihood: %f\n", ll1)
+        end
+        if abs(ll1 - ll0) < obj.llConvCrit
+            break
+        end
         ll0 = ll1
     end
     return obj

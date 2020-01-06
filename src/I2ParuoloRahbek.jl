@@ -1,4 +1,4 @@
-mutable struct CivecmI2 <: AbstractCivecm
+struct CivecmI2 <: AbstractCivecm
     endogenous::Matrix{Float64}
     exogenous::Matrix{Float64}
     lags::Int64
@@ -15,7 +15,7 @@ mutable struct CivecmI2 <: AbstractCivecm
     ζt::Matrix{Float64}
     llConvCrit::Float64
     maxiter::Int64
-    convCount::Int64
+    convCount::Ref{Int64}
     method::String
     verbose::Bool
     Z0::Matrix{Float64}
@@ -55,7 +55,7 @@ function civecmI2(
                     Matrix{Float64}(undef, rankI1 + rankI2, p),
                     1.0e-8,
                     5000,
-                    0,
+                    Ref(0),
                     "ParuoloRahbek",
                     false,
                     Matrix{Float64}(undef, iT, p),
@@ -261,7 +261,7 @@ function estimateτSwitch!(obj::CivecmI2)
             # Initiate parameters
             obj.α[:], workRRR[:], obj.ρδ[:] = rrr(mY, mX, obj.rankI1)
             # obj.ρδ[:] = obj.Hρδ*φ_ρδ
-            obj.α *= Diagonal(workRRR)
+            rmul!(obj.α, Diagonal(workRRR))
             obj.ζt[:], res[:] = mreg(obj.R0 - Rτ*obj.ρδ*obj.α', R1τ)
             Ω = res'res/iT
             if obj.verbose
@@ -272,7 +272,7 @@ function estimateτSwitch!(obj::CivecmI2)
             end
         else
             switch!(mY, mX, obj.ρδ, obj.α, Ω, obj.Hρδ, obj.hρδ, maxiter = obj.maxiter, xtol = obj.llConvCrit)
-            obj.ζt = R1τ\(obj.R0 - Rτ*obj.ρδ*obj.α')
+            obj.ζt .= R1τ\(obj.R0 - Rτ*obj.ρδ*obj.α')
         end
         # ll = loglikelihood(obj)
         if obj.verbose
@@ -286,12 +286,12 @@ function estimateτSwitch!(obj::CivecmI2)
             error("Likelihood cannot decrease")
         elseif abs(ll - ll0) < obj.llConvCrit && j > 1 # Use abs to avoid spurious stops due to noise
             obj.verbose && @printf("Convergence in %d iterations.\n", j - 1)
-            obj.convCount = j
+            obj.convCount[] = j
             break
         end
         if isnan(ll)
             @warn "nans in loglikehood. Aborting!"
-            obj.convCount = obj.maxiter
+            obj.convCount[] = obj.maxiter
             break
         end
         ll0 = ll
@@ -326,12 +326,12 @@ function estimateτSwitch!(obj::CivecmI2)
             error("Likelihood cannot decrease")
         elseif abs(ll - ll0) < obj.llConvCrit # Use abs to avoid spurious stops due to noise
             obj.verbose && @printf("Convergence in %d iterations.\n", j - 1)
-            obj.convCount = j
+            obj.convCount[] = j
             break
         end
         if isnan(ll)
             @warn "nans in loglikehood. Aborting!"
-            obj.convCount = obj.maxiter
+            obj.convCount[] = obj.maxiter
             break
         end
         ll0 = ll
@@ -343,7 +343,7 @@ function estimate2step!(obj)
     _, Res0 = mreg(obj.R0, obj.R1)
     _, Res1 = mreg(obj.R2, obj.R1)
     obj.α[:], vals, β = rrr(Res0, Res1, obj.rankI1)
-    obj.α *= Diagonal(vals)
+    rmul!(obj.α, Diagonal(vals))
     Γt = obj.R1\(obj.R0 - obj.R2*β*obj.α')
     β⊥ = nullspace(β')
     ξ, vals, η = rrr((obj.R0 - obj.R1*β*bar(β)'Γt)*nullspace(obj.α'), obj.R1*β⊥, obj.rankI2)
