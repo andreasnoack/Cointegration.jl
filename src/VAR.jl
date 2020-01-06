@@ -17,14 +17,20 @@ end
 function simulate(obj::VAR, innovations::Matrix{Float64}, init::Matrix{Float64})
     iT, p = size(innovations)
     k = size(obj.endocoefs, 3)
-    if size(obj.endocoefs, 1) != p error("Wrong dimensions") end
-    if size(init, 2) != p error("Wrong dimensions") end
-    if size(init, 1) != k error("Wrong dimensions") end
+    if size(obj.endocoefs, 1) != p
+         throw(ArgumentError("Wrong dimensions"))
+    end
+    if size(init, 2) != p
+         throw(ArgumentError("Wrong dimensions"))
+    end
+    if size(init, 1) != k
+        throw(ArgumentError("Wrong dimensions"))
+    end
     Y = zeros(iT + k, p)
-    Y[1:k,:] = init
+    Y[1:k, :] = init
     for t = 1:iT
         for i = 1:k
-            Y[t+k,:] += Y[t+k-i,:]*obj.endocoefs[:,:,i]' + innovations[t,:]
+            Y[t + k, :] += (obj.endocoefs[:, :, i]*Y[t + k - i, :] + innovations[t, :])
         end
     end
     return Y
@@ -35,10 +41,10 @@ simulate(obj::VAR, iT::Integer) = simulate(obj, randn(iT, size(obj.endogenous, 2
 function convert(::Type{VAR}, obj::CivecmI1)
     p = size(obj.endogenous, 2)
     endocoefs = Array{Float64}(undef, p, p, obj.lags)
-    endocoefs[:,:,1] = obj.α*obj.β' + I
+    endocoefs[:, :, 1] = obj.α*obj.β[1:p, :]' + I
     if obj.lags > 1
-        endocoefs[:,:,1] += obj.Γ[:,1:p]
-        endocoefs[:,:,obj.lags] = -obj.Γ[:,(obj.lags-2)*p+1:(obj.lags-1)*p]
+        endocoefs[:, :, 1] += obj.Γ[:,1:p]
+        endocoefs[:, :, obj.lags] = -obj.Γ[:,(obj.lags-2)*p+1:(obj.lags-1)*p]
         for i = 1:obj.lags - 2
             endocoefs[:,:,i+1] = obj.Γ[:,p*(obj.lags-i-1)+1:p*(obj.lags-i)] - obj.Γ[:,p*(obj.lags-i-2)+1:p*(obj.lags-i-1)]
         end

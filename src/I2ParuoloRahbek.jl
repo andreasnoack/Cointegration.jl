@@ -70,8 +70,6 @@ function civecmI2(
     return obj
 end
 
-endogenous(obj::CivecmI2) = obj.endogenous
-
 function auxilliaryMatrices!(obj::CivecmI2)
     iT, p = size(obj.Z0)
     pexo = size(obj.exogenous, 2)

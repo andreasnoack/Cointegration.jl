@@ -39,8 +39,8 @@ function civecmI1(
                    Matrix{Float64}(undef, p, rank),
                    Matrix{Float64}(undef, p1, rank),
                    Matrix{Float64}(undef, p, (lags - 1)*p + lags*pexo + punres),
-                   Matrix{Float64}(undef, p*rank, p*rank),
-                   Matrix{Float64}(undef, p1*rank, p1*rank),
+                   Matrix{Float64}(I, p*rank, p*rank),
+                   Matrix{Float64}(I, p1*rank, p1*rank),
                    zeros(p1*rank),
                    1.0e-8,
                    5000,
@@ -130,6 +130,7 @@ end
 
 copy(obj::CivecmI1) = CivecmI1(copy(obj.endogenous),
                                copy(obj.exogenous),
+                               copy(obj.unrestricted),
                                obj.lags,
                                copy(obj.α),
                                copy(obj.β),
@@ -159,8 +160,8 @@ end
 function setrank(obj::CivecmI1, rank::Int64)
     α  = Matrix{Float64}(undef, size(obj.R0, 2), rank)
     β  = Matrix{Float64}(undef, size(obj.R1, 2), rank)
-    Hα = Matrix{Float64}(undef, size(obj.R0, 2)*rank, size(obj.R0, 2)*rank)
-    Hβ = Matrix{Float64}(undef, size(obj.R1, 2)*rank, size(obj.R1, 2)*rank)
+    Hα = Matrix{Float64}(I, size(obj.R0, 2)*rank, size(obj.R0, 2)*rank)
+    Hβ = Matrix{Float64}(I, size(obj.R1, 2)*rank, size(obj.R1, 2)*rank)
     hβ = zeros(size(obj.R1, 2)*rank)
 
     newobj = CivecmI1(obj.endogenous,
@@ -185,9 +186,43 @@ function setrank(obj::CivecmI1, rank::Int64)
     return estimateEigen!(newobj)
 end
 
-function estimate(obj::CivecmI1; method = :switch)
+function restrict(obj::CivecmI1;
+    Hβ=nothing,
+    hβ=nothing,
+    Hα=nothing,
+    verbose=false)
+
+    _Hβ = Hβ === nothing ? obj.Hβ : Hβ
+    _hβ = hβ === nothing ? obj.hβ : hβ
+    _Hα = Hα === nothing ? obj.Hα : Hα
+
+    newobj = CivecmI1(obj.endogenous,
+                      obj.exogenous,
+                      obj.unrestricted,
+                      obj.lags,
+                      copy(obj.α),
+                      copy(obj.β),
+                      copy(obj.Γ),
+                      _Hα,
+                      _Hβ,
+                      _hβ,
+                      obj.llConvCrit,
+                      obj.maxiter,
+                      obj.verbose,
+                      obj.Z0,
+                      obj.Z1,
+                      obj.Z2,
+                      obj.R0,
+                      obj.R1)
+
+    estimateSwitch!(newobj, verbose=verbose)
+
+    return newobj
+end
+
+function estimate!(obj::CivecmI1; method = :switch)
     if method == :switch || method == :Boswijk
-        return estimateSwitch(obj)
+        return estimateSwitch!(obj)
     elseif method == :eigen
         return estimateEigen!(obj)
     else
@@ -202,10 +237,10 @@ function estimateEigen!(obj::CivecmI1)
     return obj
 end
 
-function estimateSwitch(obj::CivecmI1)
+function estimateSwitch!(obj::CivecmI1; verbose=false)
     iT = size(obj.Z0, 1)
-    S11 = scale!(obj.R1'obj.R1, 1/iT)
-    S10 = scale!(obj.R1'obj.R0, 1/iT)
+    S11 = rmul!(obj.R1'obj.R1, 1/iT)
+    S10 = rmul!(obj.R1'obj.R0, 1/iT)
     ll0 = -floatmax()
     ll1 = ll0
     for i = 1:obj.maxiter
@@ -213,12 +248,12 @@ function estimateSwitch(obj::CivecmI1)
         aoas11 = kron(obj.α' * OmegaInv * obj.α, S11)
         φ = qr!(obj.Hβ' * aoas11 * obj.Hβ, Val(true)) \
             (obj.Hβ' * (vec(S10 * OmegaInv * obj.α) - aoas11 * obj.hβ))
-        obj.β = reshape(obj.Hβ * φ + obj.hβ, size(obj.β)...)
+        obj.β .= reshape(obj.Hβ * φ + obj.hβ, size(obj.β)...)
         γ = qr!(obj.Hα' * kron(OmegaInv, obj.β' * S11 * obj.β) * obj.Hα, Val(true)) \
             (obj.Hα' * vec(obj.β' * S10 * OmegaInv))
-        obj.α = reshape(obj.Hα * γ, size(obj.α, 2), size(obj.α, 1))'
+        obj.α .= reshape(obj.Hα * γ, size(obj.α, 2), size(obj.α, 1))'
         ll1 = loglikelihood(obj)
-        if obj.verbose
+        if verbose
             @printf("log-likelihood: %f\n", ll1)
         end
         if abs(ll1 - ll0) < obj.llConvCrit
@@ -238,7 +273,7 @@ function ranktest(rng::AbstractRNG, obj::CivecmI1, reps::Int)
     for i = 1:size(tmpTrace, 1)
         print("Simulation of model H(", i, ")\r")
         for k = 1:reps
-    #         rankdist[k] = I2TraceSimulate(randn(iT, ip - i + 1), ip - i + 1, obj.exogenous)
+            rankdist[k] = I2TraceSimulate(randn(rng, iT, ip - i + 1), ip - i + 1, obj.exogenous)
         end
         tmpPVals[i] = mean(rankdist .> tmpTrace[i])
     end
@@ -250,18 +285,9 @@ ranktest(obj::CivecmI1) = ranktest(obj, 10000)
 
 residuals(obj::CivecmI1) = obj.R0 - obj.R1*obj.β*obj.α'
 
-# function simulate(obj::CivecmI1, innovations::Matrix{Float64})
-#     X = similar(innovations)
-
-#     for i = 2:size(X, 1)
-#         X[i,:] = X[i-1,:]*obj.β*obj.α' + X[i-1,:]
-#         for j = 1:obj.lags - 1
-#             X[i,:] += (X[i-j,:] - X[i-j-1,:])*obj.Gammat[1:size(obj.R0,2),:]
-#         end
-
 ## I1 ranktest
 
-mutable struct TraceTest
+struct TraceTest
     values::Vector{Float64}
     pvalues::Vector{Float64}
 end

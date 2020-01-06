@@ -49,14 +49,15 @@ mutable struct NormalityTest
 end
 
 function show(io::IO, obj::NormalityTest)
-    println("Univarite tests:")
-    println("Test values   df   p-values")
+    println(io, "Normality tests\n")
+    println(io, "Univarite tests:")
+    println(io, "Test values   df   p-values")
     for t in obj.univariate
-        @printf("%11.2f%5d%11.2f\n", t, 2, ccdf(Chisq(2), t))
+        @printf(io, "%11.2f%5d%11.2f\n", t, 2, ccdf(Chisq(2), t))
     end
-    println("\nMultivariate test:")
-    println("Test values   df   p-values")
-    @printf("%11.2f%5d%11.2f\n", obj.multivariate, 2*length(obj.univariate), ccdf(Chisq(2*length(obj.univariate)), obj.multivariate))
+    println(io, "\nMultivariate test:")
+    println(io, "Test values   df   p-values")
+    @printf(io, "%11.2f%5d%11.2f\n", obj.multivariate, 2*length(obj.univariate), ccdf(Chisq(2*length(obj.univariate)), obj.multivariate))
 end
 
 function normalitytest(res::AbstractMatrix)
