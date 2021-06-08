@@ -150,8 +150,13 @@ function estimate!(obj::CivecmI2)
         obj.α[:], vals, obj.β[:] = rrr(R0, R1)
         obj.α[:] *= Diagonal(vals)
         Γ = (obj.R1\(obj.R0 - obj.R2*obj.β*obj.α'))'
-    if obj.method == "MP" return estimateSwitch!(obj) end
-    if obj.method == "Johansen" return estimateτSwitch!(obj) end
+    end
+    if obj.method == "MP"
+        return estimateSwitch!(obj)
+    end
+    if obj.method == "Johansen"
+        return estimateτSwitch!(obj)
+    end
     error("No method named %obj.method")
 end
 
