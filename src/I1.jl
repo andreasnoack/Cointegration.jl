@@ -292,10 +292,11 @@ struct TraceTest
     pvalues::Vector{Float64}
 end
 
-function show(io::IO, obj::TraceTest)
-    @printf(io, "\n Rank    Value  p-value\n")
+function show(io::IO, ::MIME"text/plain", obj::TraceTest)
+    println(io, summary(obj))
+    @printf(io, "\n Rank    Value  p-value")
     for i = 1:length(obj.values)
-        @printf(io, "%5d%9.3f%9.3f\n", i-1, obj.values[i], obj.pvalues[i])
+        @printf(io, "\n%5d%9.3f%9.3f", i-1, obj.values[i], obj.pvalues[i])
     end
 end
 

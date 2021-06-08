@@ -48,8 +48,9 @@ mutable struct NormalityTest
     multivariate::Float64
 end
 
-function show(io::IO, obj::NormalityTest)
-    println(io, "Normality tests\n")
+function show(io::IO, ::MIME"text/plain", obj::NormalityTest)
+    println(io, summary(obj))
+    println(io)
     println(io, "Univarite tests:")
     println(io, "Test values   df   p-values")
     for t in obj.univariate
@@ -57,7 +58,7 @@ function show(io::IO, obj::NormalityTest)
     end
     println(io, "\nMultivariate test:")
     println(io, "Test values   df   p-values")
-    @printf(io, "%11.2f%5d%11.2f\n", obj.multivariate, 2*length(obj.univariate), ccdf(Chisq(2*length(obj.univariate)), obj.multivariate))
+    @printf(io, "%11.2f%5d%11.2f", obj.multivariate, 2*length(obj.univariate), ccdf(Chisq(2*length(obj.univariate)), obj.multivariate))
 end
 
 function normalitytest(res::AbstractMatrix)

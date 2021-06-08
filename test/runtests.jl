@@ -38,7 +38,7 @@ Cointegration.CivecmI1
 
         normtest = normalitytest(f)
         @test sprint((io, t) -> show(io, MIME"text/plain"(), t), normtest) == """
-Normality tests
+Cointegration.NormalityTest
 
 Univarite tests:
 Test values   df   p-values
@@ -50,19 +50,19 @@ Test values   df   p-values
 
 Multivariate test:
 Test values   df   p-values
-      10.03   10       0.44
-"""
+      10.03   10       0.44"""
 
         rt = ranktest(rng, f, 10000)
         @test sprint((io, t) -> show(io, MIME"text/plain"(), t), rt) == """
+Cointegration.TraceTest
 
  Rank    Value  p-value
     0   36.864    0.849
     1   21.054    0.865
     2   10.397    0.836
     3    4.067    0.703
-    4    1.447    0.268
-"""
+    4    1.447    0.268"""
+
         f3 = setrank(f, 3)
         @test sprint((io, t) -> show(io, MIME"text/plain"(), t), f3) == """
 Cointegration.CivecmI1
