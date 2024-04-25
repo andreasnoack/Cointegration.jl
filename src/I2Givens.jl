@@ -15,17 +15,21 @@ mutable struct CivecmI2Givens <: AbstractCivecm
     R2::Matrix{Float64}
 end
 
-function civecmI2Givens(endogenous::Matrix{Float64}, exogenous::Matrix{Float64}, lags::Int64)
+function civecmI2Givens(
+    endogenous::Matrix{Float64},
+    exogenous::Matrix{Float64},
+    lags::Int64,
+)
     mDX = diff(endogenous, dims = 1)
     mDDX = diff(diff(endogenous, dims = 1), dims = 1)
-    mLDDX = lagmatrix(mDDX, 1:lags - 2)
+    mLDDX = lagmatrix(mDDX, 1:lags-2)
     mDU = diff(exogenous, dims = 1)
     mDDU = diff(diff(exogenous, dims = 1), dims = 1)
-    mLDDU = lagmatrix(mDDU, 0:lags - 2)
+    mLDDU = lagmatrix(mDDU, 0:lags-2)
 
-    Z0 = mDDX[lags - 1:end, :]
-    Z1 = [mDX[lags - 1:end - 1, :] mDU[lags - 1:end - 1, :]]
-    Z2 = [endogenous[lags:end - 1, :] exogenous[lags:end - 1, :]]
+    Z0 = mDDX[lags-1:end, :]
+    Z1 = [mDX[lags-1:end-1, :] mDU[lags-1:end-1, :]]
+    Z2 = [endogenous[lags:end-1, :] exogenous[lags:end-1, :]]
     Z3 = copy(mLDDX)
     if size(mLDDU, 1) > 0
         Z3 = [Z3 mLDDU]
@@ -40,25 +44,43 @@ function civecmI2Givens(endogenous::Matrix{Float64}, exogenous::Matrix{Float64},
         R2 = Z2
     end
 
-    return CivecmI2Givens(endogenous, float64(exogenous), lags, (size(endogenous, 2), 0),
-        Array{Float64}(npars(size(R1, 2), size(R0, 2), size(R0, 2), 0)), 1.0e-8, 50000, Z0, Z1, Z2, Z3, R0, R1, R2)
+    return CivecmI2Givens(
+        endogenous,
+        float64(exogenous),
+        lags,
+        (size(endogenous, 2), 0),
+        Array{Float64}(npars(size(R1, 2), size(R0, 2), size(R0, 2), 0)),
+        1.0e-8,
+        50000,
+        Z0,
+        Z1,
+        Z2,
+        Z3,
+        R0,
+        R1,
+        R2,
+    )
 end
-civecmI2Givens(endogenous::Matrix{Float64}, lags::Int64) = civecmI2Givens(endogenous, zeros(size(endogenous, 1), 0), lags)
-civecmI2Givens(endogenous::Matrix{Float64}, exogenous::UnitRange, lags::Int64) = civecmI2Givens(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
+civecmI2Givens(endogenous::Matrix{Float64}, lags::Int64) =
+    civecmI2Givens(endogenous, zeros(size(endogenous, 1), 0), lags)
+civecmI2Givens(endogenous::Matrix{Float64}, exogenous::UnitRange, lags::Int64) =
+    civecmI2Givens(endogenous, float64(reshape(exogenous, length(exogenous), 1)), lags)
 
-function npars(p1::Integer,p::Integer,r::Integer,s::Integer)
-    n = div(p*(p - 1),2) - div((p - r)*(p - r - 1),2) +
-        div(p1*(p1 - 1),2) - div((p1 - r)*(p1 - r - 1),2) +
+function npars(p1::Integer, p::Integer, r::Integer, s::Integer)
+    n =
+        div(p * (p - 1), 2) - div((p - r) * (p - r - 1), 2) + div(p1 * (p1 - 1), 2) -
+        div((p1 - r) * (p1 - r - 1), 2) +
         r +
-        p*r + r*(p1 - r) +
-        div((p - r)*(p - r - 1),2) - div((p - r - s)*(p - r - s - 1),2) +
-        div((p1 - r)*(p1 - r - 1),2) - div((p1 - r - s)*(p1 - r - s - 1),2) +
-        s
+        p * r +
+        r * (p1 - r) +
+        div((p - r) * (p - r - 1), 2) - div((p - r - s) * (p - r - s - 1), 2) +
+        div((p1 - r) * (p1 - r - 1), 2) - div((p1 - r - s) * (p1 - r - s - 1), 2) + s
     return n
 end
-npars(obj::CivecmI2Givens) = npars(size(obj.Z1, 2), size(obj.Z0, 2), obj.rank[1], obj.rank[2])
+npars(obj::CivecmI2Givens) =
+    npars(size(obj.Z1, 2), size(obj.Z0, 2), obj.rank[1], obj.rank[2])
 
-function setrank(obj::CivecmI2Givens, rank::Tuple{Int64, Int64})
+function setrank(obj::CivecmI2Givens, rank::Tuple{Int64,Int64})
     if sum(rank) > size(obj.endogenous, 2)
         error("Illegal choice of rank")
     else
@@ -67,70 +89,78 @@ function setrank(obj::CivecmI2Givens, rank::Tuple{Int64, Int64})
     return obj
 end
 
-residuals(obj::CivecmI2Givens) = obj.R0 - obj.R2*β(obj)*σ_α_β(obj)*α(obj)' - obj.R1*Γ(obj)'
+residuals(obj::CivecmI2Givens) =
+    obj.R0 - obj.R2 * β(obj) * σ_α_β(obj) * α(obj)' - obj.R1 * Γ(obj)'
 
 function α(obj::CivecmI2Givens, full::Bool)
     p = size(obj.Z0, 2)
     count = 1
-       ans = Matrix{Float64}(I, p, p)
+    ans = Matrix{Float64}(I, p, p)
     for i = 1:obj.rank[1]
-        for j = i + 1:p
+        for j = i+1:p
             Q = LinearAlgebra.Givens(i, j, cos(obj.pars[count]), sin(obj.pars[count]))
             mul!(Q, ans)
             count += 1
         end
     end
-    return (full ? ans : ans[:,1:obj.rank[1]])
+    return (full ? ans : ans[:, 1:obj.rank[1]])
 end
 α(obj::CivecmI2Givens) = α(obj, false)
 
 function β(obj::CivecmI2Givens, full::Bool)
     p = size(obj.Z0, 2)
     p1 = size(obj.Z1, 2)
-    count = div(p*(p-1),2) - div((p-obj.rank[1])*(p-obj.rank[1]-1),2) + 1
+    count = div(p * (p - 1), 2) - div((p - obj.rank[1]) * (p - obj.rank[1] - 1), 2) + 1
     ans = Matrix{Float64}(I, p1, p1)
     for i = 1:obj.rank[1]
-        for j = i + 1:p1
+        for j = i+1:p1
             Q = LinearAlgebra.Givens(i, j, cos(obj.pars[count]), sin(obj.pars[count]))
             mul!(Q, ans)
             count += 1
         end
     end
-    return (full ? ans : ans[:,1:obj.rank[1]])
+    return (full ? ans : ans[:, 1:obj.rank[1]])
 end
 β(obj::CivecmI2Givens) = β(obj, false)
 
 function σ_α_β(obj::CivecmI2Givens)
     p = size(obj.Z0, 2)
     p1 = size(obj.Z1, 2)
-    count = div(p*(p-1),2)-div((p-obj.rank[1])*(p-obj.rank[1]-1),2) +
-        div(p1*(p1-1),2)-div((p1-obj.rank[1])*(p1-obj.rank[1]-1),2) + 1
-    return diagm(obj.pars[count:count + obj.rank[1] - 1])
+    count =
+        div(p * (p - 1), 2) - div((p - obj.rank[1]) * (p - obj.rank[1] - 1), 2) +
+        div(p1 * (p1 - 1), 2) - div((p1 - obj.rank[1]) * (p1 - obj.rank[1] - 1), 2) + 1
+    return diagm(obj.pars[count:count+obj.rank[1]-1])
 end
 
 function Γ(obj::CivecmI2Givens)
     p = size(obj.Z0, 2)
     p1 = size(obj.Z1, 2)
-    count = div(p*(p-1),2)-div((p-obj.rank[1])*(p-obj.rank[1]-1),2) +
-        div(p1*(p1-1),2)-div((p1-obj.rank[1])*(p1-obj.rank[1]-1),2) +
-        obj.rank[1] + 1
+    count =
+        div(p * (p - 1), 2) - div((p - obj.rank[1]) * (p - obj.rank[1] - 1), 2) +
+        div(p1 * (p1 - 1), 2) - div((p1 - obj.rank[1]) * (p1 - obj.rank[1] - 1), 2) +
+        obj.rank[1] +
+        1
     ans = Matrix{Float64}(undef, p, p1)
-    ans[:,1:obj.rank[1]] = obj.pars[count:count + p*obj.rank[1] - 1]
-    ans[1:obj.rank[1],obj.rank[1] + 1:end] = obj.pars[count + p*obj.rank[1]:count + p*obj.rank[1] + (p - obj.rank[1])*obj.rank[1] - 1]
-    ans[obj.rank[1] + 1:end,obj.rank[1] + 1:end] = ξ(obj)*σ_ξ_η(obj)*ηpar(obj)'
-    return α(obj, true)*ans*β(obj, true)'
+    ans[:, 1:obj.rank[1]] = obj.pars[count:count+p*obj.rank[1]-1]
+    ans[1:obj.rank[1], obj.rank[1]+1:end] =
+        obj.pars[count+p*obj.rank[1]:count+p*obj.rank[1]+(p-obj.rank[1])*obj.rank[1]-1]
+    ans[obj.rank[1]+1:end, obj.rank[1]+1:end] = ξ(obj) * σ_ξ_η(obj) * ηpar(obj)'
+    return α(obj, true) * ans * β(obj, true)'
 end
 
 function ξ(obj::CivecmI2Givens)
     p = size(obj.Z0, 2)
     p1 = size(obj.Z1, 2)
-    count = div(p*(p-1),2)-div((p-obj.rank[1])*(p-obj.rank[1]-1),2) +
-        div(p1*(p1-1),2)-div((p1-obj.rank[1])*(p1-obj.rank[1]-1),2) +
+    count =
+        div(p * (p - 1), 2) - div((p - obj.rank[1]) * (p - obj.rank[1] - 1), 2) +
+        div(p1 * (p1 - 1), 2) - div((p1 - obj.rank[1]) * (p1 - obj.rank[1] - 1), 2) +
         obj.rank[1] +
-        p*obj.rank[1] + (p - obj.rank[1])*obj.rank[1] + 1
+        p * obj.rank[1] +
+        (p - obj.rank[1]) * obj.rank[1] +
+        1
     ans = Matrix{Float64}(I, p - obj.rank[1], obj.rank[2])
     for i = 1:obj.rank[2]
-        for j = i + 1:p - obj.rank[1]
+        for j = i+1:p-obj.rank[1]
             Q = LinearAlgebra.Givens(i, j, cos(obj.pars[count]), sin(obj.pars[count]))
             mul!(Q, ans)
             count += 1
@@ -142,14 +172,17 @@ end
 function ηpar(obj::CivecmI2Givens)
     p = size(obj.Z0, 2)
     p1 = size(obj.Z1, 2)
-    count = div(p*(p-1),2)-div((p-obj.rank[1])*(p-obj.rank[1]-1),2) +
-        div(p1*(p1-1),2)-div((p1-obj.rank[1])*(p1-obj.rank[1]-1),2) +
+    count =
+        div(p * (p - 1), 2) - div((p - obj.rank[1]) * (p - obj.rank[1] - 1), 2) +
+        div(p1 * (p1 - 1), 2) - div((p1 - obj.rank[1]) * (p1 - obj.rank[1] - 1), 2) +
         obj.rank[1] +
-        p*obj.rank[1] + (p - obj.rank[1])*obj.rank[1] +
-        div((p - obj.rank[1])*(p-obj.rank[1] - 1), 2) - div((p - sum(obj.rank))*(p - sum(obj.rank) - 1), 2) + 1
+        p * obj.rank[1] +
+        (p - obj.rank[1]) * obj.rank[1] +
+        div((p - obj.rank[1]) * (p - obj.rank[1] - 1), 2) -
+        div((p - sum(obj.rank)) * (p - sum(obj.rank) - 1), 2) + 1
     ans = Matrix{Float64}(I, p1 - obj.rank[1], obj.rank[2])
     for i = 1:obj.rank[2]
-        for j = i + 1:p1 - obj.rank[1]
+        for j = i+1:p1-obj.rank[1]
             Q = LinearAlgebra.Givens(i, j, cos(obj.pars[count]), sin(obj.pars[count]))
             mul!(Q, ans)
             count += 1
@@ -161,13 +194,17 @@ end
 function σ_ξ_η(obj::CivecmI2Givens)
     p = size(obj.Z0, 2)
     p1 = size(obj.Z1, 2)
-    count = div(p*(p-1),2)-div((p-obj.rank[1])*(p-obj.rank[1]-1),2) +
-        div(p1*(p1-1),2)-div((p1-obj.rank[1])*(p1-obj.rank[1]-1),2) +
+    count =
+        div(p * (p - 1), 2) - div((p - obj.rank[1]) * (p - obj.rank[1] - 1), 2) +
+        div(p1 * (p1 - 1), 2) - div((p1 - obj.rank[1]) * (p1 - obj.rank[1] - 1), 2) +
         obj.rank[1] +
-        p*obj.rank[1] + (p - obj.rank[1])*obj.rank[1] +
-        div((p - obj.rank[1])*(p-obj.rank[1] - 1), 2) - div((p - sum(obj.rank))*(p - sum(obj.rank) - 1), 2) +
-        div((p1 - obj.rank[1])*(p1-obj.rank[1] - 1), 2) - div((p1 - sum(obj.rank))*(p1 - sum(obj.rank) - 1), 2) + 1
-    return diagm(obj.pars[count:count + obj.rank[2] - 1])
+        p * obj.rank[1] +
+        (p - obj.rank[1]) * obj.rank[1] +
+        div((p - obj.rank[1]) * (p - obj.rank[1] - 1), 2) -
+        div((p - sum(obj.rank)) * (p - sum(obj.rank) - 1), 2) +
+        div((p1 - obj.rank[1]) * (p1 - obj.rank[1] - 1), 2) -
+        div((p1 - sum(obj.rank)) * (p1 - sum(obj.rank) - 1), 2) + 1
+    return diagm(obj.pars[count:count+obj.rank[2]-1])
 end
 
 function loglikelihood(obj::CivecmI2Givens, pars)
