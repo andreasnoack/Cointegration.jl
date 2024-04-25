@@ -57,7 +57,7 @@ end
 
 function convert(::Type{VAR}, obj::CivecmI2)
     p = size(obj.endogenous, 2)
-    endocoefs = Array{Float64}(p, p, obj.lags)
+    endocoefs = Array{Float64}(undef, p, p, obj.lags)
     endocoefs[:, :, 1] =
         2I + (obj.α*ρ(obj)'*τ(obj)'+obj.α*δ(obj)'*obj.τ⊥'+obj.ζt'*τ(obj)')[1:p, 1:p]
     endocoefs[:, :, 2] = -I - (obj.α*δ(obj)'*obj.τ⊥'+obj.ζt'*τ(obj)')[1:p, 1:p]

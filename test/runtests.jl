@@ -129,6 +129,13 @@ Cointegration.CivecmI1
 2×5 Matrix{Float64}:
   0.13321    0.0446713  0.103897  0.0415547  -0.282675
  -0.341134  -0.856249   0.283727  0.208753   -0.159012"""
+
+        @testset "Convert to VAR and simulate" begin
+            f_var = convert(VAR, f)
+            f_sim = simulate(f_var, 10)
+            @test f_sim isa Matrix
+            @test size(f_sim) == (12, 5)
+        end
     end
 end
 
