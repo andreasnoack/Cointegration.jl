@@ -246,10 +246,10 @@ function estimateSwitch!(obj::CivecmI1; verbose=false)
     for i = 1:obj.maxiter
         OmegaInv = inv(cholesky!(residualvariance(obj)))
         aoas11 = kron(obj.α' * OmegaInv * obj.α, S11)
-        φ = qr!(obj.Hβ' * aoas11 * obj.Hβ, Val(true)) \
+        φ = qr!(obj.Hβ' * aoas11 * obj.Hβ, ColumnNorm()) \
             (obj.Hβ' * (vec(S10 * OmegaInv * obj.α) - aoas11 * obj.hβ))
         obj.β .= reshape(obj.Hβ * φ + obj.hβ, size(obj.β)...)
-        γ = qr!(obj.Hα' * kron(OmegaInv, obj.β' * S11 * obj.β) * obj.Hα, Val(true)) \
+        γ = qr!(obj.Hα' * kron(OmegaInv, obj.β' * S11 * obj.β) * obj.Hα, ColumnNorm()) \
             (obj.Hα' * vec(obj.β' * S10 * OmegaInv))
         obj.α .= reshape(obj.Hα * γ, size(obj.α, 2), size(obj.α, 1))'
         ll1 = loglikelihood(obj)

@@ -384,7 +384,7 @@ function ranktestPvaluesSimluateAsymp(rng::AbstractRNG, obj::CivecmI2, testvalue
     rankdist = zeros(reps)
 
     # Handling the progress bar
-    prgr = Progress(ip*(ip + 1)>>1, 0.5, "Simulating I(2) rank test...")
+    prgr = Progress(ip*(ip + 1)>>1; dt = 0.5, desc = "Simulating I(2) rank test...")
     for i = 0:ip - 1
         for j = 0:ip - i
             next!(prgr)

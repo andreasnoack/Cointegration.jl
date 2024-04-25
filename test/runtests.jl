@@ -212,12 +212,14 @@ end
         end
 
         @testset "Table 7.2" begin
-            # Signs flipped relative to book
-            @test f.β ≈ [ 21.97  -14.66   7.95  -1.02
-                         -22.70   20.05 -25.64   1.93
-                         114.42   -3.56   4.28 -25.00
-                         -92.64 -100.26 -44.88  14.65
-                        -133.16   62.59  62.75   2.32] atol=2e-2
+            # Signs flipped relative to book. Make first row positive
+            # to make solution unique
+            @test f.β .* sign.(f.β[1, :])' ≈ [
+                 21.9741   14.656      7.94655    1.02449
+                -22.6981  -20.0509   -25.6408    -1.92976
+                114.417     3.56115    4.27751   24.9971
+                -92.6401  100.263    -44.8773   -14.6482
+               -133.161   -62.5935    62.7489    -2.31866] atol=2e-2
         end
 
         @testset "Single coitegration relation" begin

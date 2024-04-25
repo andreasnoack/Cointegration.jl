@@ -17,7 +17,7 @@ function gls(Y::Matrix, X::Matrix, H::Matrix, K::SparseMatrixCSC, k::Vector, Ome
     end
     lhs = K'kron(H' / Omega * H, Sxx) * K
     rhs = K'reshape(Sxy / Omega * H - Sxx * G * H' / Omega * H, px * r)
-    return reshape(K * (qr!(lhs, Val(true)) \ rhs) + k, px, r)
+    return reshape(K * (qr!(lhs, ColumnNorm()) \ rhs) + k, px, r)
 end
 
 function lagmatrix(A::Matrix, lags::AbstractArray{Int64, 1})
@@ -37,7 +37,7 @@ function lagmatrix(A::Matrix, lags::AbstractArray{Int64, 1})
 end
 
 function mreg(Y::VecOrMat, X::Matrix)
-    coef = qr(X, Val(true))\Y
+    coef = qr(X, ColumnNorm())\Y
     residuals = Y - X*coef
     (coef, residuals)
 end
@@ -174,10 +174,10 @@ end
 #     for i = 1:maxiter
 #         ΩB = cholesky(Ω)\B
 #         BΩBSxx = kron(B'ΩB, Sxx)
-#         φ = qr!(H'*BΩBSxx*H,Val(true))\(H'*(vec(Sxy*ΩB) - BΩBSxx*h))
+#         φ = qr!(H'*BΩBSxx*H, ColumnNorm())\(H'*(vec(Sxy*ΩB) - BΩBSxx*h))
 #         A[:] = H*φ + h
 
-#         B[:] = (qr!(A'Sxx*A,Val(true))\(A'Sxy))'
+#         B[:] = (qr!(A'Sxx*A, ColumnNorm())\(A'Sxy))'
 
 #         Ω[:] = LinearAlgebra.syrk_wrapper!('T', Y - X*A*B')/m
 #         crit0 = crit1
