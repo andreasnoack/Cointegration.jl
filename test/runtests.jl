@@ -1,4 +1,4 @@
-using Cointegration, Test, LinearAlgebra, StatsBase, Statistics, StableRNGs, CSV, DataFrames
+using Cointegration, Test, LinearAlgebra, StatsBase, Statistics, StableRNGs, CSV, DataFrames, ZipFile, Dates
 
 @testset "Basic" begin
     k = 5
@@ -268,4 +268,52 @@ end
             end
         end
     end
+end
+
+@testset "Juselius and Assenmacher (2017)" begin
+    # Juselius, Katarina, and Katrin Assenmacher. "Real exchange rate persistence and the excess return puzzle: The case of Switzerland versus the US." Journal of Applied Econometrics 32, no. 6 (2017): 1145-1155.
+    # https://onlinelibrary.wiley.com/doi/abs/10.1002/jae.2562
+    zipfile = ZipFile.Reader(download("http://qed.econ.queensu.ca/jae/datasets/juselius002/ja-data.zip"))
+    csvfile = only(filter(f -> occursin("csv", f.name), zipfile.files))
+    # It's quarterly data so eventually, we might want to build some functionality
+    # around https://github.com/matthieugomez/PeriodicalDates.jl
+    df = CSV.read(csvfile, DataFrame)
+    close(zipfile)
+
+    X = [df.LP df.LPus df.LShUS df.B10y df.USB10y df.R3M df.USR3m]
+    # D = [month(df.Column1[i]) == j for i in 1:size(df, 1), j in 1:3]
+    D_season = [month(df.Column1[i]) == j for i in 1:size(df, 1), j in 1:3]
+    D_centered_season = D_season .- 1/4
+    D_extra_season = [df.sea1D df.sea2D df.sea3D] # Should probably have been centered but they are not in the CATS file
+    D_extra = [year(df.Column1[i]) == y && month(df.Column1[i]) == q for i in 1:size(df, 1), (y, q) in [(1980, 2), (1982, 4), (2008, 4)]]
+    D_extra = [year(df.Column1[i]) == y && month(df.Column1[i]) == q for i in 1:size(df, 1), (y, q) in [(1980, 2), (1980, 4), (1981, 4), (1982, 4), (2008, 4)]]
+
+    D = [D_centered_season D_extra_season D_extra]
+    D = [ones(size(X, 1)) D_centered_season D_extra_season D_extra]
+    D_nocentering = [D_season D_extra_season D_extra]
+    D = [ones(size(X, 1)) D_season D_extra_season D_extra]
+    Z = [float.(1:size(X, 1));;]
+
+    ft = civecmI2(X; exogenous = Z, unrestricted = float.(D), lags = 2)
+    ft = civecmI2(X[3:end,:]; exogenous = Z[3:end,:], unrestricted = float.(D[3:end,:]), lags = 2)
+
+    rank_test_vals, rank_p_vals = ranktest(ft, 1000)
+    rank_test_vals
+    rank_p_vals
+
+    ft_nocentering = civecmI2(X; exogenous = Z, unrestricted = float.(D_nocentering), lags = 2)
+    ft_nocentering = civecmI2(X[3:end,:]; exogenous = Z[3:end,:], unrestricted = float.(D_nocentering[3:end,:]), lags = 2)
+
+    rank_test_vals_nocentering, rank_p_vals_nocentering = ranktest(ft_nocentering, 1000)
+    rank_test_vals_nocentering
+    rank_p_vals_nocentering
+
+
+
+    ft1 = civecmI1(X; exogenous = Z, unrestricted = D, lags = 2)
+    ft1 = civecmI1(X; exogenous = Z, lags = 2)
+    ranktest(ft1)
+
+    ft2 = civecmI1(X - D*(D\X); exogenous = Z - D*(D\Z), lags = 2)
+    ranktest(ft2)
 end

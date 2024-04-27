@@ -27,8 +27,8 @@ function lagmatrix(A::Matrix, lags::AbstractArray{Int64,1})
     end
     ans = Matrix{Float64}(iT - maximum(lags), ip * size(lags, 1))
     for i = 1:ip
-        for j = 1:size(lags, 1)
-            for k = 1:size(ans, 1)
+        for j = axes(lags, 1)
+            for k = axes(ans, 1)
                 ans[k, i+(j-1)*ip] = A[k+maximum(lags)-lags[j], i]
             end
         end
@@ -74,7 +74,7 @@ function normalitytest(res::AbstractMatrix)
     rtb1 = mean(y .^ 3, dims = 1)
     b2 = mean(y .^ 4, dims = 1)
     z1 = Float64[normalitytestz1(n, t) for t in vec(rtb1)]
-    z2 = Float64[normalitytestz2(n, rtb1[t]^2, b2[t]) for t = 1:length(b2)]
+    z2 = Float64[normalitytestz2(n, rtb1[t]^2, b2[t]) for t = (b2)]
     return NormalityTest(z1 .^ 2 + z2 .^ 2, z1'z1 + z2'z2)
 end
 
@@ -151,8 +151,7 @@ function switch!(
     xtol = sqrt(eps()),
 )
     # Solve the reduced rank problem Y=XAB'+ε under the restriction vec(A) = Hφ + h by a switching algorithm
-    m, ny = size(Y)
-    nx = size(X, 2)
+    m = size(Y, 1)
     i = 1
     crit0 = -floatmax()
     crit1 = crit0

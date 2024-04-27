@@ -234,7 +234,7 @@ function estimate!(obj::CivecmI1; method = :switch)
     elseif method == :eigen
         return estimateEigen!(obj)
     else
-        error("no such method")
+        throw(ArgumentError("method mist be :switch or :Boswijk but was :$method"))
     end
 end
 
@@ -251,7 +251,7 @@ function estimateSwitch!(obj::CivecmI1; verbose = false)
     S10 = rmul!(obj.R1'obj.R0, 1 / iT)
     ll0 = -floatmax()
     ll1 = ll0
-    for i = 1:obj.maxiter
+    for _ = 1:obj.maxiter
         OmegaInv = inv(cholesky!(residualvariance(obj)))
         aoas11 = kron(obj.α' * OmegaInv * obj.α, S11)
         φ =
@@ -280,7 +280,7 @@ function ranktest(rng::AbstractRNG, obj::CivecmI1, reps::Int)
     tmpPVals = zeros(size(tmpTrace))
     rankdist = zeros(reps)
     iT, ip = size(obj.endogenous)
-    for i = 1:size(tmpTrace, 1)
+    for i = axes(tmpTrace, 1)
         print("Simulation of model H(", i, ")\r")
         for k = 1:reps
             rankdist[k] =

@@ -161,7 +161,7 @@ function estimate!(obj::CivecmI2)
         R1 = obj.R2 - obj.R1 * (obj.R1 \ obj.R2)
         obj.α[:], vals, obj.β[:] = rrr(R0, R1)
         obj.α[:] *= Diagonal(vals)
-        Γ = (obj.R1 \ (obj.R0 - obj.R2 * obj.β * obj.α'))'
+        # Γ = (obj.R1 \ (obj.R0 - obj.R2 * obj.β * obj.α'))'
     end
     if obj.method == "MP"
         return estimateSwitch!(obj)

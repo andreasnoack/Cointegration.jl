@@ -1,6 +1,7 @@
 struct CivecmI2 <: AbstractCivecm
     endogenous::Matrix{Float64}
     exogenous::Matrix{Float64}
+    unrestricted::Matrix{Float64}
     lags::Int64
     rankI1::Int64
     rankI2::Int64
@@ -30,6 +31,7 @@ end
 function civecmI2(
     endogenous::Matrix{Float64};
     exogenous::Matrix{Float64} = Matrix{Float64}(undef, size(endogenous, 1), 0),
+    unrestricted::Matrix{Float64} = zeros(size(endogenous, 1), 0),
     lags::Int64 = 2,
     rankI1::Int64 = size(endogenous, 2),
     rankI2::Int64 = 0,
@@ -38,10 +40,12 @@ function civecmI2(
     ss, p = size(endogenous)
     iT = ss - lags
     pexo = size(exogenous, 2)
+    punres = size(unrestricted, 2)
     p1 = p + pexo
     obj = CivecmI2(
         endogenous,
         exogenous,
+        unrestricted,
         lags,
         rankI1,
         rankI2,
@@ -70,7 +74,7 @@ function civecmI2(
         Matrix{Float64}(undef, iT, p),
         Matrix{Float64}(undef, iT, p1),
         Matrix{Float64}(undef, iT, p1),
-        Matrix{Float64}(undef, iT, p * (lags - 2) + pexo * (lags - 1)),
+        Matrix{Float64}(undef, iT, p * (lags - 2) + pexo * (lags - 1) + punres),
         Matrix{Float64}(undef, iT, p),
         Matrix{Float64}(undef, iT, p1),
         Matrix{Float64}(undef, iT, p1),
@@ -83,6 +87,9 @@ end
 function auxilliaryMatrices!(obj::CivecmI2)
     iT, p = size(obj.Z0)
     pexo = size(obj.exogenous, 2)
+    punres = size(obj.unrestricted, 2)
+
+    # Endogenous variables
     for j = 1:p
         for i = 1:iT
             obj.Z0[i, j] =
@@ -101,6 +108,8 @@ function auxilliaryMatrices!(obj::CivecmI2)
             end
         end
     end
+
+    # Exogenous variables
     for j = 1:pexo
         for i = 1:iT
             obj.Z1[i, p+j] = obj.exogenous[i+obj.lags-1, j] - obj.exogenous[i+obj.lags-2, j]
@@ -119,6 +128,10 @@ function auxilliaryMatrices!(obj::CivecmI2)
             end
         end
     end
+
+    # Unrestriced variables
+    obj.Z3[:, (end-punres+1):end] = obj.unrestricted[(obj.lags+1):end, :]
+
     if size(obj.Z3, 2) > 0 && norm(obj.Z3) > size(obj.Z3, 1) * eps()
         obj.R0[:] = mreg(obj.Z0, obj.Z3)[2]
         obj.R1[:] = mreg(obj.Z1, obj.Z3)[2]
@@ -134,6 +147,7 @@ end
 copy(obj::CivecmI2) = CivecmI2(
     copy(obj.endogenous),
     copy(obj.exogenous),
+    copy(obj.unrestricted),
     obj.lags,
     obj.rankI1,
     obj.rankI2,
@@ -179,6 +193,7 @@ function setrank(obj::CivecmI2, rankI1::Int64, rankI2::Int64)
         newobj = CivecmI2(
             obj.endogenous,
             obj.exogenous,
+            obj.unrestricted,
             obj.lags,
             rankI1,
             rankI2,
@@ -225,16 +240,6 @@ function estimateτSwitch!(obj::CivecmI2)
     iT, p1 = size(obj.R2)
     rs = obj.rankI1 + obj.rankI2
 
-    # Moment matrices
-    S10 = obj.R1'obj.R0 / iT
-    S11 = obj.R1'obj.R1 / iT
-    S20 = obj.R2'obj.R0 / iT
-    S21 = obj.R2'obj.R1 / iT
-    S22 = obj.R2'obj.R2 / iT
-
-    # Conditioning estimate (to summarize error magnitude during calculations)
-    condS = cond([obj.R2 obj.R1] |> t -> t't)
-
     # Memory allocation
     Rτ = Matrix{Float64}(undef, iT, p1)
     R1τ = Matrix{Float64}(undef, iT, rs)
@@ -245,23 +250,13 @@ function estimateτSwitch!(obj::CivecmI2)
     α⊥ = Matrix{Float64}(undef, p, p - obj.rankI1)
     workRRR = Vector{Float64}(undef, obj.rankI1)
     ρ = view(obj.ρδ, 1:rs, 1:obj.rankI1)
-    ρort = Matrix{Float64}(undef, rs, rs - obj.rankI1)
     δ = view(obj.ρδ, rs+1:p1, 1:obj.rankI1)
-    φ_ρδ = Matrix{Float64}(undef, size(obj.Hρδ, 2), obj.rankI1)
     φ_τ = Vector{Float64}(undef, size(obj.Hτ, 2))
     res = Matrix{Float64}(undef, iT, p)
     Ω = Matrix{Float64}(I, p, p)
-    A = Matrix{Float64}(undef, rs, rs)
-    B = S22
-    C = Matrix{Float64}(undef, rs, rs)
-    D = S11
-    E = Vector{Float64}(undef, p1 * rs)
-    ABCD = Matrix{Float64}(undef, p1 * rs, p1 * rs)
 
     # Choose initial values from two step estimation procedure
     estimate2step!(obj)
-    # obj.τ[:] = obj.Hτ*randn(size(obj.Hτ, 2)) + obj.hτ
-    # obj.τ[:] = obj.Hτ*(obj.Hτ\(vec(obj.τ) - obj.hτ)) + obj.hτ # but choose a value within the restrited parameter space by projecting onto it
 
     # Algorithm
     ll = -floatmax()
@@ -280,7 +275,6 @@ function estimateτSwitch!(obj::CivecmI2)
         if j == 1
             # Initiate parameters
             obj.α[:], workRRR[:], obj.ρδ[:] = rrr(mY, mX, obj.rankI1)
-            # obj.ρδ[:] = obj.Hρδ*φ_ρδ
             rmul!(obj.α, Diagonal(workRRR))
             obj.ζt[:], res[:] = mreg(obj.R0 - Rτ * obj.ρδ * obj.α', R1τ)
             Ω = res'res / iT
@@ -326,21 +320,13 @@ function estimateτSwitch!(obj::CivecmI2)
         end
         ll0 = ll
         α⊥ = nullspace(obj.α')[:, 1:p-obj.rankI1]
-        # A = ρ*obj.α'*(Ω\obj.α)*ρ'
-        # B[:] = S22
         κ = obj.ζt * α⊥
-        # C = κ*(cholesky!(α⊥'Ω*α⊥)\κ')
-        # D[:] = S11
         Ωα = Ω \ obj.α
         ψ = obj.τ⊥ * δ + obj.τ * obj.ζt * (Ωα / (obj.α' * Ωα))
-        # E[:] = S20*Ωα*ρ' - S21*ψ*obj.α'Ωα*ρ' + S10*α⊥*(cholesky!(α⊥'Ω*α⊥)\κ')
-        # ABCD = kron(A,B) + kron(C,D)
-        # φ_τ[:] = qr!(obj.Hτ'ABCD*obj.Hτ, Val(true))\(obj.Hτ'*(E - ABCD*obj.hτ))
         sqrtΩ = sqrt(Ω)
         tmpX = kron(sqrtΩ \ obj.α * ρ', obj.R2) + kron(pinv(sqrtΩ * α⊥)'κ', obj.R1)
         φ_τ[:] =
             (tmpX * obj.Hτ) \ (vec((obj.R0 - obj.R1 * ψ * obj.α') / sqrtΩ) - tmpX * obj.hτ)
-        # φ_τ[:] = (obj.Hτ'tmpX'tmpX*obj.Hτ)\(obj.Hτ'tmpX'*(vec((obj.R0-obj.R1*ψ*obj.α')/sqrtΩ)-tmpX*obj.hτ))
         obj.τ[:] = obj.Hτ * φ_τ + obj.hτ
 
         myres =
@@ -497,6 +483,5 @@ end
 α(obj::CivecmI2) = fit.α
 β(obj::CivecmI2) = τ(obj) * ρ(obj)
 τ(obj::CivecmI2) = obj.τ
-# τ(obj::CivecmI2) = copy(obj.τ)
 ρ(obj::CivecmI2) = obj.ρδ[1:obj.rankI1+obj.rankI2, :]
 δ(obj::CivecmI2) = obj.ρδ[obj.rankI1+obj.rankI2+1:end, :]
