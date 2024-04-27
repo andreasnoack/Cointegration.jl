@@ -1,8 +1,106 @@
-struct CivecmI2 <: AbstractCivecm
+struct I2Data
     endogenous::Matrix{Float64}
     exogenous::Matrix{Float64}
     unrestricted::Matrix{Float64}
     lags::Int64
+    Z0::Matrix{Float64}
+    Z1::Matrix{Float64}
+    Z2::Matrix{Float64}
+    Z3::Matrix{Float64}
+    R0::Matrix{Float64}
+    R1::Matrix{Float64}
+    R2::Matrix{Float64}
+end
+
+function I2Data(
+    endogenous::Matrix{Float64},
+    exogenous::Matrix{Float64},
+    unrestricted::Matrix{Float64},
+    lags::Int64
+)
+    ss, p = size(endogenous)
+    iT = ss - lags
+    pexo = size(exogenous, 2)
+    punres = size(unrestricted, 2)
+    p1 = p + pexo
+
+    Z0 = Matrix{Float64}(undef, iT, p)
+    Z1 = Matrix{Float64}(undef, iT, p1)
+    Z2 = Matrix{Float64}(undef, iT, p1)
+    Z3 = Matrix{Float64}(undef, iT, p * (lags - 2) + pexo * (lags - 1) + punres)
+    R0 = Matrix{Float64}(undef, iT, p)
+    R1 = Matrix{Float64}(undef, iT, p1)
+    R2 = Matrix{Float64}(undef, iT, p1)
+
+    # Endogenous variables
+    for j = 1:p
+        for i = 1:iT
+            Z0[i, j] =
+                endogenous[i+lags, j] - 2endogenous[i+lags-1, j] +
+                endogenous[i+lags-2, j]
+            Z1[i, j] = endogenous[i+lags-1, j] - endogenous[i+lags-2, j]
+            Z2[i, j] = endogenous[i+lags-1, j]
+        end
+    end
+    for k = 1:lags-2
+        for j = 1:p
+            for i = 1:iT
+                Z3[i, p*(k-1)+j] =
+                    endogenous[i+lags-k, j] - 2endogenous[i+lags-k-1, j] +
+                    endogenous[i+lags-k-2, j]
+            end
+        end
+    end
+
+    # Exogenous variables
+    for j = 1:pexo
+        for i = 1:iT
+            Z1[i, p+j] = exogenous[i+lags-1, j] - exogenous[i+lags-2, j]
+            Z2[i, p+j] = exogenous[i+lags-1, j]
+            Z3[i, p*(lags-2)+j] =
+                exogenous[i+lags, j] - 2exogenous[i+lags-1, j] +
+                exogenous[i+lags-2, j]
+        end
+    end
+    for k = 1:lags-2
+        for j = 1:pexo
+            for i = 1:iT
+                Z3[i, p*(lags-2)+pexo*k+j] =
+                    exogenous[i+lags-k, j] - 2exogenous[i+lags-k-1, j] +
+                    exogenous[i+lags-k-2, j]
+            end
+        end
+    end
+
+    # Unrestriced variables
+    Z3[:, (end-punres+1):end] = unrestricted[(lags+1):end, :]
+
+    if size(Z3, 2) > 0 && norm(Z3) > size(Z3, 1) * eps()
+        R0[:] = mreg(Z0, Z3)[2]
+        R1[:] = mreg(Z1, Z3)[2]
+        R2[:] = mreg(Z2, Z3)[2]
+    else
+        R0[:] = Z0
+        R1[:] = Z1
+        R2[:] = Z2
+    end
+    return I2Data(
+        endogenous,
+        exogenous,
+        unrestricted,
+        lags,
+        Z0,
+        Z1,
+        Z2,
+        Z3,
+        R0,
+        R1,
+        R2
+    )
+end
+
+struct CivecmI2 <: AbstractCivecm
+    data::I2Data
     rankI1::Int64
     rankI2::Int64
     α::Matrix{Float64}
@@ -19,13 +117,6 @@ struct CivecmI2 <: AbstractCivecm
     convCount::Ref{Int64}
     method::String
     verbose::Bool
-    Z0::Matrix{Float64}
-    Z1::Matrix{Float64}
-    Z2::Matrix{Float64}
-    Z3::Matrix{Float64}
-    R0::Matrix{Float64}
-    R1::Matrix{Float64}
-    R2::Matrix{Float64}
 end
 
 function civecmI2(
@@ -42,27 +133,24 @@ function civecmI2(
     pexo = size(exogenous, 2)
     punres = size(unrestricted, 2)
     p1 = p + pexo
-    obj = CivecmI2(
+
+    data = I2Data(
         endogenous,
         exogenous,
         unrestricted,
         lags,
+    )
+
+    obj = CivecmI2(
+        data,
         rankI1,
         rankI2,
         Matrix{Float64}(undef, p, rankI1),
         Matrix{Float64}(undef, p1, rankI1),
-        kron(
-            Matrix{Float64}(I, rankI1, rankI1),
-            [zeros(rankI1 + rankI2); ones(p1 - rankI1 - rankI2)],
-        ),
-        vec(
-            [
-                Matrix{Float64}(I, rankI1 + rankI2, rankI1)
-                zeros(p1 - rankI1 - rankI2, rankI1)
-            ],
-        ),
+        Matrix{Float64}(I, p1 * rankI1, p1 * rankI1),
+        zeros(p1 * rankI1),
         Matrix{Float64}(undef, p1, rankI1 + rankI2),
-        Matrix{Float64}(undef, p1 * (rankI1 + rankI2), p1 * (rankI1 + rankI2)),
+        Matrix{Float64}(I, p1 * (rankI1 + rankI2), p1 * (rankI1 + rankI2)),
         zeros(p1 * (rankI1 + rankI2)),
         Matrix{Float64}(undef, p1, p1 - rankI1 - rankI2),
         Matrix{Float64}(undef, rankI1 + rankI2, p),
@@ -71,84 +159,13 @@ function civecmI2(
         Ref(0),
         "ParuoloRahbek",
         false,
-        Matrix{Float64}(undef, iT, p),
-        Matrix{Float64}(undef, iT, p1),
-        Matrix{Float64}(undef, iT, p1),
-        Matrix{Float64}(undef, iT, p * (lags - 2) + pexo * (lags - 1) + punres),
-        Matrix{Float64}(undef, iT, p),
-        Matrix{Float64}(undef, iT, p1),
-        Matrix{Float64}(undef, iT, p1),
     )
-    auxilliaryMatrices!(obj)
-    # estimate!(obj)
-    return obj
-end
-
-function auxilliaryMatrices!(obj::CivecmI2)
-    iT, p = size(obj.Z0)
-    pexo = size(obj.exogenous, 2)
-    punres = size(obj.unrestricted, 2)
-
-    # Endogenous variables
-    for j = 1:p
-        for i = 1:iT
-            obj.Z0[i, j] =
-                obj.endogenous[i+obj.lags, j] - 2obj.endogenous[i+obj.lags-1, j] +
-                obj.endogenous[i+obj.lags-2, j]
-            obj.Z1[i, j] = obj.endogenous[i+obj.lags-1, j] - obj.endogenous[i+obj.lags-2, j]
-            obj.Z2[i, j] = obj.endogenous[i+obj.lags-1, j]
-        end
-    end
-    for k = 1:obj.lags-2
-        for j = 1:p
-            for i = 1:iT
-                obj.Z3[i, p*(k-1)+j] =
-                    obj.endogenous[i+obj.lags-k, j] - 2obj.endogenous[i+obj.lags-k-1, j] +
-                    obj.endogenous[i+obj.lags-k-2, j]
-            end
-        end
-    end
-
-    # Exogenous variables
-    for j = 1:pexo
-        for i = 1:iT
-            obj.Z1[i, p+j] = obj.exogenous[i+obj.lags-1, j] - obj.exogenous[i+obj.lags-2, j]
-            obj.Z2[i, p+j] = obj.exogenous[i+obj.lags-1, j]
-            obj.Z3[i, p*(obj.lags-2)+j] =
-                obj.exogenous[i+obj.lags, j] - 2obj.exogenous[i+obj.lags-1, j] +
-                obj.exogenous[i+obj.lags-2, j]
-        end
-    end
-    for k = 1:obj.lags-2
-        for j = 1:pexo
-            for i = 1:iT
-                obj.Z3[i, p*(obj.lags-2)+pexo*k+j] =
-                    obj.exogenous[i+obj.lags-k, j] - 2obj.exogenous[i+obj.lags-k-1, j] +
-                    obj.exogenous[i+obj.lags-k-2, j]
-            end
-        end
-    end
-
-    # Unrestriced variables
-    obj.Z3[:, (end-punres+1):end] = obj.unrestricted[(obj.lags+1):end, :]
-
-    if size(obj.Z3, 2) > 0 && norm(obj.Z3) > size(obj.Z3, 1) * eps()
-        obj.R0[:] = mreg(obj.Z0, obj.Z3)[2]
-        obj.R1[:] = mreg(obj.Z1, obj.Z3)[2]
-        obj.R2[:] = mreg(obj.Z2, obj.Z3)[2]
-    else
-        obj.R0[:] = obj.Z0
-        obj.R1[:] = obj.Z1
-        obj.R2[:] = obj.Z2
-    end
+    estimate!(obj)
     return obj
 end
 
 copy(obj::CivecmI2) = CivecmI2(
-    copy(obj.endogenous),
-    copy(obj.exogenous),
-    copy(obj.unrestricted),
-    obj.lags,
+    copy(obj.data),
     obj.rankI1,
     obj.rankI2,
     copy(obj.α),
@@ -165,21 +182,14 @@ copy(obj::CivecmI2) = CivecmI2(
     obj.convCount,
     obj.method,
     obj.verbose,
-    copy(obj.Z0),
-    copy(obj.Z1),
-    copy(obj.Z2),
-    copy(obj.Z3),
-    copy(obj.R0),
-    copy(obj.R1),
-    copy(obj.R2),
 )
 
 function setrank(obj::CivecmI2, rankI1::Int64, rankI2::Int64)
-    if rankI1 + rankI2 > size(obj.endogenous, 2)
+    if rankI1 + rankI2 > size(obj.data.endogenous, 2)
         error("Illegal choice of rank")
     else
-        p = size(obj.endogenous, 2)
-        p1 = p + size(obj.exogenous, 2)
+        p = size(obj.data.endogenous, 2)
+        p1 = p + size(obj.data.exogenous, 2)
         α = Matrix{Float64}(undef, p, rankI1)
         ρδ = Matrix{Float64}(undef, p1, rankI1)
         Hρδ = Matrix{Float64}(I, p1 * rankI1, p1 * rankI1)
@@ -191,10 +201,7 @@ function setrank(obj::CivecmI2, rankI1::Int64, rankI2::Int64)
         ζt = Matrix{Float64}(undef, rankI1 + rankI2, p)
 
         newobj = CivecmI2(
-            obj.endogenous,
-            obj.exogenous,
-            obj.unrestricted,
-            obj.lags,
+            obj.data,
             rankI1,
             rankI2,
             α,
@@ -211,13 +218,6 @@ function setrank(obj::CivecmI2, rankI1::Int64, rankI2::Int64)
             obj.convCount,
             obj.method,
             obj.verbose,
-            obj.Z0,
-            obj.Z1,
-            obj.Z2,
-            obj.Z3,
-            obj.R0,
-            obj.R1,
-            obj.R2,
         )
     end
     return estimate!(newobj)
@@ -225,7 +225,7 @@ end
 
 function estimate!(obj::CivecmI2)
     if obj.method == "ParuoloRahbek"
-        # if obj.rankI1 == 0 || obj.rankI2 == size(obj.R0,2) - obj.rankI1 return estimate2step(obj) end
+        # if obj.rankI1 == 0 || obj.rankI2 == size(obj.data.R0,2) - obj.rankI1 return estimate2step(obj) end
         return estimateτSwitch!(obj)
     end
     error("No method named %obj.method")
@@ -236,8 +236,8 @@ function estimateτSwitch!(obj::CivecmI2)
     tt = time()
 
     # Dimentions
-    p = size(obj.R0, 2)
-    iT, p1 = size(obj.R2)
+    p = size(obj.data.R0, 2)
+    iT, p1 = size(obj.data.R2)
     rs = obj.rankI1 + obj.rankI2
 
     # Memory allocation
@@ -267,16 +267,16 @@ function estimateτSwitch!(obj::CivecmI2)
             time() - tt > 1 && println("\nIteration:", j)
         end
         obj.τ⊥[:] = nullspace(obj.τ')[:, 1:p1-obj.rankI1-obj.rankI2]
-        Rτ[:, 1:rs] = obj.R2 * obj.τ
-        Rτ[:, rs+1:end] = obj.R1 * obj.τ⊥
-        R1τ[:] = obj.R1 * obj.τ
+        Rτ[:, 1:rs] = obj.data.R2 * obj.τ
+        Rτ[:, rs+1:end] = obj.data.R1 * obj.τ⊥
+        R1τ[:] = obj.data.R1 * obj.τ
         workX[:], mX[:] = mreg(Rτ, R1τ)
-        workY[:], mY[:] = mreg(obj.R0, R1τ)
+        workY[:], mY[:] = mreg(obj.data.R0, R1τ)
         if j == 1
             # Initiate parameters
             obj.α[:], workRRR[:], obj.ρδ[:] = rrr(mY, mX, obj.rankI1)
             rmul!(obj.α, Diagonal(workRRR))
-            obj.ζt[:], res[:] = mreg(obj.R0 - Rτ * obj.ρδ * obj.α', R1τ)
+            obj.ζt[:], res[:] = mreg(obj.data.R0 - Rτ * obj.ρδ * obj.α', R1τ)
             Ω = res'res / iT
             if obj.verbose
                 # if time() - tt > 1
@@ -296,7 +296,7 @@ function estimateτSwitch!(obj::CivecmI2)
                 maxiter = obj.maxiter,
                 xtol = obj.llConvCrit,
             )
-            obj.ζt .= R1τ \ (obj.R0 - Rτ * obj.ρδ * obj.α')
+            obj.ζt .= R1τ \ (obj.data.R0 - Rτ * obj.ρδ * obj.α')
         end
         # ll = loglikelihood(obj)
         if obj.verbose
@@ -324,14 +324,14 @@ function estimateτSwitch!(obj::CivecmI2)
         Ωα = Ω \ obj.α
         ψ = obj.τ⊥ * δ + obj.τ * obj.ζt * (Ωα / (obj.α' * Ωα))
         sqrtΩ = sqrt(Ω)
-        tmpX = kron(sqrtΩ \ obj.α * ρ', obj.R2) + kron(pinv(sqrtΩ * α⊥)'κ', obj.R1)
+        tmpX = kron(sqrtΩ \ obj.α * ρ', obj.data.R2) + kron(pinv(sqrtΩ * α⊥)'κ', obj.data.R1)
         φ_τ[:] =
-            (tmpX * obj.Hτ) \ (vec((obj.R0 - obj.R1 * ψ * obj.α') / sqrtΩ) - tmpX * obj.hτ)
+            (tmpX * obj.Hτ) \ (vec((obj.data.R0 - obj.data.R1 * ψ * obj.α') / sqrtΩ) - tmpX * obj.hτ)
         obj.τ[:] = obj.Hτ * φ_τ + obj.hτ
 
         myres =
-            obj.R0 - obj.R2 * obj.τ * ρ * obj.α' -
-            obj.R1 * (ψ * obj.α' + obj.τ * κ * ((α⊥'Ω * α⊥) \ α⊥'Ω))
+            obj.data.R0 - obj.data.R2 * obj.τ * ρ * obj.α' -
+            obj.data.R1 * (ψ * obj.α' + obj.τ * κ * ((α⊥'Ω * α⊥) \ α⊥'Ω))
         ll = loglikelihood(myres)
         if obj.verbose
             if time() - tt > 1
@@ -359,14 +359,14 @@ function estimateτSwitch!(obj::CivecmI2)
 end
 
 function estimate2step!(obj)
-    _, Res0 = mreg(obj.R0, obj.R1)
-    _, Res1 = mreg(obj.R2, obj.R1)
+    _, Res0 = mreg(obj.data.R0, obj.data.R1)
+    _, Res1 = mreg(obj.data.R2, obj.data.R1)
     obj.α[:], vals, β = rrr(Res0, Res1, obj.rankI1)
     rmul!(obj.α, Diagonal(vals))
-    Γt = obj.R1 \ (obj.R0 - obj.R2 * β * obj.α')
+    Γt = obj.data.R1 \ (obj.data.R0 - obj.data.R2 * β * obj.α')
     β⊥ = nullspace(β')
     ξ, vals, η =
-        rrr((obj.R0 - obj.R1 * β * bar(β)'Γt) * nullspace(obj.α'), obj.R1 * β⊥, obj.rankI2)
+        rrr((obj.data.R0 - obj.data.R1 * β * bar(β)'Γt) * nullspace(obj.α'), obj.data.R1 * β⊥, obj.rankI2)
     ξ *= Diagonal(vals)
     obj.τ[:, 1:obj.rankI1] = β
     obj.τ[:, obj.rankI1+1:end] = β⊥ * η
@@ -380,7 +380,7 @@ function estimate2step!(obj)
 end
 
 function ranktest(obj::CivecmI2)
-    ip = size(obj.endogenous, 2)
+    ip = size(obj.data.endogenous, 2)
     r, s = obj.rankI1, obj.rankI2
     ll0 = loglikelihood(setrank(obj, ip, 0))
     tmpTrace = zeros(ip, ip + 1)
@@ -407,7 +407,7 @@ function ranktestPvaluesSimluateAsymp(
     testvalues::Matrix,
     reps::Int64,
 )
-    (iT, ip) = size(obj.endogenous)
+    (iT, ip) = size(obj.data.endogenous)
     pvals = zeros(ip, ip + 1)
     rankdist = zeros(reps)
 
@@ -417,7 +417,7 @@ function ranktestPvaluesSimluateAsymp(
         for j = 0:ip-i
             next!(prgr)
             for k = 1:reps
-                rankdist[k] = I2TraceSimulate(randn(rng, iT, ip - i), j, obj.exogenous)
+                rankdist[k] = I2TraceSimulate(randn(rng, iT, ip - i), j, obj.data.exogenous)
             end
             pvals[i+1, i+j+1] = mean(rankdist .> testvalues[i+1, i+j+1])
         end
@@ -425,7 +425,7 @@ function ranktestPvaluesSimluateAsymp(
     return pvals
 end
 function ranktestPvaluesBootstrap(obj::CivecmI2, testvalues::Matrix, reps::Int64)
-    iT, p = size(obj.R0)
+    iT, p = size(obj.data.R0)
     r, s = obj.rankI1, obj.rankI2
     bootobj = copy(obj)
     objres = Matrix{Float64}(undef, iT, p)
@@ -463,8 +463,8 @@ end
 
 function residuals(obj::CivecmI2)
     res =
-        obj.R0 - obj.R2 * obj.τ * ρ(obj) * obj.α' - obj.R1 * obj.τ⊥ * δ(obj) * obj.α' -
-        obj.R1 * obj.τ * obj.ζt
+        obj.data.R0 - obj.data.R2 * obj.τ * ρ(obj) * obj.α' - obj.data.R1 * obj.τ⊥ * δ(obj) * obj.α' -
+        obj.data.R1 * obj.τ * obj.ζt
     return res
 end
 

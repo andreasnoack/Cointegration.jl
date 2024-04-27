@@ -74,7 +74,7 @@ function normalitytest(res::AbstractMatrix)
     rtb1 = mean(y .^ 3, dims = 1)
     b2 = mean(y .^ 4, dims = 1)
     z1 = Float64[normalitytestz1(n, t) for t in vec(rtb1)]
-    z2 = Float64[normalitytestz2(n, rtb1[t]^2, b2[t]) for t = (b2)]
+    z2 = Float64[normalitytestz2(n, rtb1[t]^2, b2[t]) for t = eachindex(b2)]
     return NormalityTest(z1 .^ 2 + z2 .^ 2, z1'z1 + z2'z2)
 end
 
