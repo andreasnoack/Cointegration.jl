@@ -127,13 +127,6 @@ function civecmI2(
     rankI1::Int64 = size(endogenous, 2),
     rankI2::Int64 = 0,
 )
-
-    ss, p = size(endogenous)
-    iT = ss - lags
-    pexo = size(exogenous, 2)
-    punres = size(unrestricted, 2)
-    p1 = p + pexo
-
     data = I2Data(
         endogenous,
         exogenous,
@@ -141,27 +134,7 @@ function civecmI2(
         lags,
     )
 
-    obj = CivecmI2(
-        data,
-        rankI1,
-        rankI2,
-        Matrix{Float64}(undef, p, rankI1),
-        Matrix{Float64}(undef, p1, rankI1),
-        Matrix{Float64}(I, p1 * rankI1, p1 * rankI1),
-        zeros(p1 * rankI1),
-        Matrix{Float64}(undef, p1, rankI1 + rankI2),
-        Matrix{Float64}(I, p1 * (rankI1 + rankI2), p1 * (rankI1 + rankI2)),
-        zeros(p1 * (rankI1 + rankI2)),
-        Matrix{Float64}(undef, p1, p1 - rankI1 - rankI2),
-        Matrix{Float64}(undef, rankI1 + rankI2, p),
-        1.0e-8,
-        5000,
-        Ref(0),
-        "ParuoloRahbek",
-        false,
-    )
-    estimate!(obj)
-    return obj
+    return setrank(data, size(endogenous, 2), 0)
 end
 
 copy(obj::CivecmI2) = CivecmI2(
@@ -184,103 +157,94 @@ copy(obj::CivecmI2) = CivecmI2(
     obj.verbose,
 )
 
-function setrank(obj::CivecmI2, rankI1::Int64, rankI2::Int64)
-    if rankI1 + rankI2 > size(obj.data.endogenous, 2)
+function setrank(data::I2Data, rankI1::Int64, rankI2::Int64)
+    if rankI1 + rankI2 > size(data.endogenous, 2)
         error("Illegal choice of rank")
-    else
-        p = size(obj.data.endogenous, 2)
-        p1 = p + size(obj.data.exogenous, 2)
-        α = Matrix{Float64}(undef, p, rankI1)
-        ρδ = Matrix{Float64}(undef, p1, rankI1)
-        Hρδ = Matrix{Float64}(I, p1 * rankI1, p1 * rankI1)
-        hρδ = zeros(p1 * rankI1)
-        τ = Matrix{Float64}(undef, p1, rankI1 + rankI2)
-        Hτ = Matrix{Float64}(I, p1 * (rankI1 + rankI2), p1 * (rankI1 + rankI2))
-        hτ = zeros(p1 * (rankI1 + rankI2))
-        τ⊥ = Matrix{Float64}(undef, p1, p1 - rankI1 - rankI2)
-        ζt = Matrix{Float64}(undef, rankI1 + rankI2, p)
-
-        newobj = CivecmI2(
-            obj.data,
-            rankI1,
-            rankI2,
-            α,
-            ρδ,
-            Hρδ,
-            hρδ,
-            τ,
-            Hτ,
-            hτ,
-            τ⊥,
-            ζt,
-            obj.llConvCrit,
-            obj.maxiter,
-            obj.convCount,
-            obj.method,
-            obj.verbose,
-        )
     end
-    return estimate!(newobj)
+    return estimateτSwitch(data, rankI1, rankI2, 5000, 1e-8, false)
 end
 
-function estimate!(obj::CivecmI2)
-    if obj.method == "ParuoloRahbek"
-        # if obj.rankI1 == 0 || obj.rankI2 == size(obj.data.R0,2) - obj.rankI1 return estimate2step(obj) end
-        return estimateτSwitch!(obj)
-    end
-    error("No method named %obj.method")
-end
+setrank(obj::CivecmI2, rankI1::Int64, rankI2::Int64) =
+    setrank(obj.data, rankI1, rankI2)
 
-function estimateτSwitch!(obj::CivecmI2)
+function estimateτSwitch(
+    data::I2Data,
+    rankI1::Int,
+    rankI2::Int,
+    maxiter::Int,
+    llConvCrit::Float64,
+    verbose::Bool,
+)
     # Timer
     tt = time()
 
     # Dimentions
-    p = size(obj.data.R0, 2)
-    iT, p1 = size(obj.data.R2)
-    rs = obj.rankI1 + obj.rankI2
+    p = size(data.R0, 2)
+    iT, p1 = size(data.R2)
+    rs = rankI1 + rankI2
 
-    # Memory allocation
+    # Result matrices
+    α = Matrix{Float64}(undef, p, rankI1)
+    ρδ = Matrix{Float64}(undef, p1, rankI1)
+    Hρδ = Matrix{Float64}(I, p1 * rankI1, p1 * rankI1)
+    hρδ = zeros(p1 * rankI1)
+    τ = Matrix{Float64}(undef, p1, rankI1 + rankI2)
+    Hτ = Matrix{Float64}(I, p1 * (rankI1 + rankI2), p1 * (rankI1 + rankI2))
+    hτ = zeros(p1 * (rankI1 + rankI2))
+    τ⊥ = Matrix{Float64}(undef, p1, p1 - rankI1 - rankI2)
+    ζt = Matrix{Float64}(undef, rankI1 + rankI2, p)
+
+    # Temporary matrices
     Rτ = Matrix{Float64}(undef, iT, p1)
     R1τ = Matrix{Float64}(undef, iT, rs)
     workX = Matrix{Float64}(undef, rs, p1)
     mX = Matrix{Float64}(undef, iT, p1)
     workY = Matrix{Float64}(undef, rs, p)
     mY = Matrix{Float64}(undef, iT, p)
-    α⊥ = Matrix{Float64}(undef, p, p - obj.rankI1)
-    workRRR = Vector{Float64}(undef, obj.rankI1)
-    ρ = view(obj.ρδ, 1:rs, 1:obj.rankI1)
-    δ = view(obj.ρδ, rs+1:p1, 1:obj.rankI1)
-    φ_τ = Vector{Float64}(undef, size(obj.Hτ, 2))
+    α⊥ = Matrix{Float64}(undef, p, p - rankI1)
+    workRRR = Vector{Float64}(undef, rankI1)
+    ρ = view(ρδ, 1:rs, 1:rankI1)
+    δ = view(ρδ, rs+1:p1, 1:rankI1)
+    φ_τ = Vector{Float64}(undef, size(Hτ, 2))
     res = Matrix{Float64}(undef, iT, p)
     Ω = Matrix{Float64}(I, p, p)
 
     # Choose initial values from two step estimation procedure
-    estimate2step!(obj)
+    estimate2step!(
+        data,
+        rankI1,
+        rankI2,
+        α,
+        ρδ,
+        τ,
+        τ⊥,
+        ζt
+    )
 
     # Algorithm
     ll = -floatmax()
     ll0 = -floatmax()
     j = 1
-    for j = 1:obj.maxiter
-        if obj.verbose
+    local convCount
+    for j = 1:maxiter
+        if verbose
             time() - tt > 1 && println("\nIteration:", j)
         end
-        obj.τ⊥[:] = nullspace(obj.τ')[:, 1:p1-obj.rankI1-obj.rankI2]
-        Rτ[:, 1:rs] = obj.data.R2 * obj.τ
-        Rτ[:, rs+1:end] = obj.data.R1 * obj.τ⊥
-        R1τ[:] = obj.data.R1 * obj.τ
+        τ⊥[:] = nullspace(τ')[:, 1:p1-rankI1-rankI2]
+        Rτ[:, 1:rs] = data.R2 * τ
+        Rτ[:, rs+1:end] = data.R1 * τ⊥
+        R1τ[:] = data.R1 * τ
         workX[:], mX[:] = mreg(Rτ, R1τ)
-        workY[:], mY[:] = mreg(obj.data.R0, R1τ)
+        workY[:], mY[:] = mreg(data.R0, R1τ)
         if j == 1
             # Initiate parameters
-            obj.α[:], workRRR[:], obj.ρδ[:] = rrr(mY, mX, obj.rankI1)
-            rmul!(obj.α, Diagonal(workRRR))
-            obj.ζt[:], res[:] = mreg(obj.data.R0 - Rτ * obj.ρδ * obj.α', R1τ)
+            α[:], workRRR[:], ρδ[:] = rrr(mY, mX, rankI1)
+            rmul!(α, Diagonal(workRRR))
+            ζt[:], res[:] = mreg(data.R0 - Rτ * ρδ * α', R1τ)
             Ω = res'res / iT
-            if obj.verbose
+            if verbose
                 # if time() - tt > 1
-                # println("\nτ:\n", obj.τ)
+                # println("\nτ:\n", τ)
                 println("ll:", loglikelihood(obj))
                 # end
             end
@@ -288,95 +252,122 @@ function estimateτSwitch!(obj::CivecmI2)
             switch!(
                 mY,
                 mX,
-                obj.ρδ,
-                obj.α,
+                ρδ,
+                α,
                 Ω,
-                obj.Hρδ,
-                obj.hρδ,
-                maxiter = obj.maxiter,
-                xtol = obj.llConvCrit,
+                Hρδ,
+                hρδ,
+                maxiter = maxiter,
+                xtol = llConvCrit,
             )
-            obj.ζt .= R1τ \ (obj.data.R0 - Rτ * obj.ρδ * obj.α')
+            ζt .= R1τ \ (data.R0 - Rτ * ρδ * α')
         end
         # ll = loglikelihood(obj)
-        if obj.verbose
+        if verbose
             if time() - tt > 1
-                # println("\nτ:\n", obj.τ)
+                # println("\nτ:\n", τ)
                 println("Right after switching given τ\nll:", ll)
             end
         end
-        if ll - ll0 < -obj.llConvCrit
+        if ll - ll0 < -llConvCrit
             println("Old likelihood: $(ll0)\nNew likelihood: $(ll)\nIteration: $(j)")
             error("Likelihood cannot decrease")
-        elseif abs(ll - ll0) < obj.llConvCrit && j > 1 # Use abs to avoid spurious stops due to noise
-            obj.verbose && @printf("Convergence in %d iterations.\n", j - 1)
-            obj.convCount[] = j
+        elseif abs(ll - ll0) < llConvCrit && j > 1 # Use abs to avoid spurious stops due to noise
+            verbose && @printf("Convergence in %d iterations.\n", j - 1)
+            convCount = j
             break
         end
         if isnan(ll)
             @warn "nans in loglikehood. Aborting!"
-            obj.convCount[] = obj.maxiter
+            convCount = maxiter
             break
         end
         ll0 = ll
-        α⊥ = nullspace(obj.α')[:, 1:p-obj.rankI1]
-        κ = obj.ζt * α⊥
-        Ωα = Ω \ obj.α
-        ψ = obj.τ⊥ * δ + obj.τ * obj.ζt * (Ωα / (obj.α' * Ωα))
+        α⊥ = nullspace(α')[:, 1:p-rankI1]
+        κ = ζt * α⊥
+        Ωα = Ω \ α
+        ψ = τ⊥ * δ + τ * ζt * (Ωα / (α' * Ωα))
         sqrtΩ = sqrt(Ω)
-        tmpX = kron(sqrtΩ \ obj.α * ρ', obj.data.R2) + kron(pinv(sqrtΩ * α⊥)'κ', obj.data.R1)
+        tmpX = kron(sqrtΩ \ α * ρ', data.R2) + kron(pinv(sqrtΩ * α⊥)'κ', data.R1)
         φ_τ[:] =
-            (tmpX * obj.Hτ) \ (vec((obj.data.R0 - obj.data.R1 * ψ * obj.α') / sqrtΩ) - tmpX * obj.hτ)
-        obj.τ[:] = obj.Hτ * φ_τ + obj.hτ
+            (tmpX * Hτ) \ (vec((data.R0 - data.R1 * ψ * α') / sqrtΩ) - tmpX * hτ)
+        τ[:] = Hτ * φ_τ + hτ
 
         myres =
-            obj.data.R0 - obj.data.R2 * obj.τ * ρ * obj.α' -
-            obj.data.R1 * (ψ * obj.α' + obj.τ * κ * ((α⊥'Ω * α⊥) \ α⊥'Ω))
+            data.R0 - data.R2 * τ * ρ * α' -
+            data.R1 * (ψ * α' + τ * κ * ((α⊥'Ω * α⊥) \ α⊥'Ω))
         ll = loglikelihood(myres)
-        if obj.verbose
+        if verbose
             if time() - tt > 1
-                # println("\nτ:\n", obj.τ)
+                # println("\nτ:\n", τ)
                 println("Rigth after estimation of τ\nll:", ll)
                 tt = time()
             end
         end
-        if ll - ll0 < -obj.llConvCrit
+        if ll - ll0 < -llConvCrit
             println("Old likelihood: $(ll0)\nNew likelihood: $(ll)\nIteration: $(j)")
             error("Likelihood cannot decrease")
-        elseif abs(ll - ll0) < obj.llConvCrit # Use abs to avoid spurious stops due to noise
-            obj.verbose && @printf("Convergence in %d iterations.\n", j - 1)
-            obj.convCount[] = j
+        elseif abs(ll - ll0) < llConvCrit # Use abs to avoid spurious stops due to noise
+            verbose && @printf("Convergence in %d iterations.\n", j - 1)
+            convCount = j
             break
         end
         if isnan(ll)
             @warn "nans in loglikehood. Aborting!"
-            obj.convCount[] = obj.maxiter
+            convCount = maxiter
             break
         end
         ll0 = ll
     end
-    return obj
+    return CivecmI2(
+        data,
+        rankI1,
+        rankI2,
+        α,
+        ρδ,
+        Hρδ,
+        hρδ,
+        τ,
+        Hτ,
+        hτ,
+        τ⊥,
+        ζt,
+        llConvCrit,
+        maxiter,
+        Ref(convCount),
+        "ParuoloRahbek",
+        verbose
+    )
 end
 
-function estimate2step!(obj)
-    _, Res0 = mreg(obj.data.R0, obj.data.R1)
-    _, Res1 = mreg(obj.data.R2, obj.data.R1)
-    obj.α[:], vals, β = rrr(Res0, Res1, obj.rankI1)
-    rmul!(obj.α, Diagonal(vals))
-    Γt = obj.data.R1 \ (obj.data.R0 - obj.data.R2 * β * obj.α')
+function estimate2step!(
+    data::I2Data,
+    rankI1::Int,
+    rankI2::Int,
+    α::Matrix{Float64},
+    ρδ::Matrix{Float64},
+    τ::Matrix{Float64},
+    τ⊥::Matrix{Float64},
+    ζt::Matrix{Float64}
+)
+    _, Res0 = mreg(data.R0, data.R1)
+    _, Res1 = mreg(data.R2, data.R1)
+    α, vals, β = rrr(Res0, Res1, rankI1)
+    rmul!(α, Diagonal(vals))
+    Γt = data.R1 \ (data.R0 - data.R2 * β * α')
     β⊥ = nullspace(β')
     ξ, vals, η =
-        rrr((obj.data.R0 - obj.data.R1 * β * bar(β)'Γt) * nullspace(obj.α'), obj.data.R1 * β⊥, obj.rankI2)
+        rrr((data.R0 - data.R1 * β * bar(β)'Γt) * nullspace(α'), data.R1 * β⊥, rankI2)
     ξ *= Diagonal(vals)
-    obj.τ[:, 1:obj.rankI1] = β
-    obj.τ[:, obj.rankI1+1:end] = β⊥ * η
-    obj.τ⊥[:] = β⊥ * nullspace(η')
-    obj.ρδ[1:obj.rankI1+obj.rankI2, :] =
-        Matrix{Float64}(I, obj.rankI1 + obj.rankI2, obj.rankI1)
-    obj.ρδ[obj.rankI1+obj.rankI2+1:end, :] = bar(β⊥ * nullspace(η'))'Γt * bar(obj.α)
-    obj.ζt[1:obj.rankI1, :] = bar(β)'Γt
-    obj.ζt[obj.rankI1+1:end, :] = bar(β⊥ * η)'Γt
-    return obj
+    τ[:, 1:rankI1] = β
+    τ[:, rankI1+1:end] = β⊥ * η
+    τ⊥[:] = β⊥ * nullspace(η')
+    ρδ[1:rankI1+rankI2, :] =
+        Matrix{Float64}(I, rankI1 + rankI2, rankI1)
+    ρδ[rankI1+rankI2+1:end, :] = bar(β⊥ * nullspace(η'))'Γt * bar(α)
+    ζt[1:rankI1, :] = bar(β)'Γt
+    ζt[rankI1+1:end, :] = bar(β⊥ * η)'Γt
+    return nothing
 end
 
 function ranktest(obj::CivecmI2)
