@@ -116,10 +116,10 @@ function rrr!(Y::Matrix, X::Matrix)
     Sm1[index] = 1 ./ svdX.S[index]
     α = svdY.V * Diagonal(svdY.S) * svdZ.V / sqrt(iT)
     β = sqrt(iT) * svdX.V * Diagonal(Sm1) * svdZ.U
-    return α, svdZ.S, β
+    return (;α, s = svdZ.S, β)
 end
 function rrr!(Y::Matrix, X::Matrix, rank::Int64)
-    α, values, β = rrr(Y, X)
+    α, values, β = rrr!(Y, X)
     return α[:, 1:rank], values[1:rank], β[:, 1:rank]
 end
 rrr(Y::Matrix, X::Matrix, args...) = rrr!(copy(Y), copy(X), args...)

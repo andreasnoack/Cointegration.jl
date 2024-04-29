@@ -99,6 +99,16 @@ function I2Data(
     )
 end
 
+function convert(::Type{I2Data}, data::I1Data)
+    # FIXME! Maybe this can be done more efficiently
+    return I2Data(
+        data.endogenous,
+        data.exogenous,
+        data.unrestricted,
+        data.lags,
+    )
+end
+
 struct CivecmI2 <: AbstractCivecm
     data::I2Data
     rankI1::Int64
@@ -157,11 +167,168 @@ copy(obj::CivecmI2) = CivecmI2(
     obj.verbose,
 )
 
+function convert(::Type{CivecmI2}, obj::CivecmI1)
+    p, rankI1 = size(obj.α)
+    p1 = size(obj.β, 1)
+    # For I(1) models we can compute
+    rankI2 = p - rankI1
+
+    # We have that
+    #
+    # I(1): ΔXₜ = αβ'Xₜ₋₁ + ΓΔXₜ₋₁
+    # I(2): Δ²Xₜ = α*(ρ'τ'Xₜ₋₁ + δ'τ⊥'ΔXₜ₋₁) + ζτ'ΔXₜ₋₁
+    #
+    # so we can set
+    #
+    # α = α
+    # β = τ*ρ
+    # Γ - I = αδ'τ⊥' + ζτ'
+
+    # We can choose τ and ρ freely as long as β = τ*ρ so it is convenient to
+    # choose τ to be orthonormal since that allows for easy access to the bar
+    # and the bot versions of τ. We can get an orthonormal τ via the QR
+    # factorization. This makes ρ triangular instead of the identity which is
+    # the choice of Johansen (1997)
+    Q, R = qr(obj.β)
+    τ = Q[:, 1:(rankI1 + rankI2)] # check if this falls back to scalar indexing
+    τ⊥ = Q[:, (rankI1 + rankI2 + 1):end]
+    ρ = [R; zeros(rankI2, rankI1)]
+
+    # ᾱ'*(Γ - I)*τ̄⊥ = δ'
+    δ = ((obj.Γ[:, 1:p1] - Matrix(I, p, p1)) * τ⊥)' * bar(obj.α)
+
+    # (Γ - I)τ̄ = ζ
+    ζ = (obj.Γ[:, 1:p1] - Matrix(I, p, p1))*τ
+
+    # FIXME! The restriction handling needs to be moved to a different place
+    Hρδ = Matrix{Float64}(I, p1 * rankI1, p1 * rankI1)
+    hρδ = zeros(p1 * rankI1)
+    Hτ = Matrix{Float64}(I, p1 * (rankI1 + rankI2), p1 * (rankI1 + rankI2))
+    hτ = zeros(p1 * (rankI1 + rankI2))
+
+    return CivecmI2(
+        # FIXME! Should this data conversion be avoided?
+        convert(I2Data, obj.data),
+        rankI1,
+        rankI2,
+        obj.α,
+        [ρ; δ],
+        Hρδ,
+        hρδ,
+        τ,
+        Hτ,
+        hτ,
+        τ⊥,
+        ζ',
+        # FIXME! This convergence nonsense shouldn't be here
+        1e-8,
+        5000,
+        Ref(0),
+        "ReducedRankRegression",
+        false
+    )
+end
+
 function setrank(data::I2Data, rankI1::Int64, rankI2::Int64)
-    if rankI1 + rankI2 > size(data.endogenous, 2)
-        error("Illegal choice of rank")
+
+    p = size(data.R0, 2)
+    p1 = size(data.R1, 2)
+
+    if rankI1 < 0
+        throw(ArgumentError("rankI1 must be positive"))
     end
-    return estimateτSwitch(data, rankI1, rankI2, 5000, 1e-8, false)
+    if rankI2 < 0
+        throw(ArgumentError("rankI2 must be positive"))
+    end
+    if rankI1 + rankI2 > p
+        throw(ArgumentError("rankI1 + rankI2 must be less than p but rankI1=$rankI1, rankI2=$rankI2, and p=$p"))
+    end
+
+    if p == rankI1 + rankI2 # the I1 case
+        # When p == rankI1 + rankI2 then it is an I(1) model so we estimate with civemcI1 and convert to CivecmI2
+
+        return convert(
+            CivecmI2,
+            # Use the CivecmI1 constructor when implemented similarly to the CivecmI2 constructor
+            civecmI1(
+                data.endogenous,
+                exogenous = data.exogenous,
+                unrestricted = data.unrestricted,
+                lags = data.lags,
+                rank = rankI1
+            )
+        )
+    elseif rankI1 == 0
+        # When rankI1 == 0 then the I(2) model reduces to
+        #
+        # Δ²Xₜ = ζτ'ΔXₜ₋₁
+        #
+        # i.e. a reduces rank regression of Δ²Xₜ against ΔXₜ₋₁
+
+        _rrr = rrr(data.R0, data.R1)
+        α = Matrix{Float64}(undef, p, 0)
+        ρδ = Matrix{Float64}(undef, p1, 0)
+        Hρδ = Matrix{Float64}(I, p1 * rankI1, p1 * rankI1)
+        hρδ = zeros(p1 * rankI1)
+        τ = _rrr.β[:, 1:rankI2]
+        Hτ = Matrix{Float64}(I, p1 * (rankI1 + rankI2), p1 * (rankI1 + rankI2))
+        hτ = zeros(p1 * (rankI1 + rankI2))
+        τ⊥ = nullspace(τ')
+        # Our reduces rank regression is an SVD so the singular values should
+        # be applies to one of the vector matrices to match the usual statistical
+        # regressentation
+        ζt = Diagonal(_rrr.s[1:rankI2]) * _rrr.α[:, 1:rankI2]'
+
+        return CivecmI2(
+            data,
+            rankI1,
+            rankI2,
+            α,
+            ρδ,
+            Hρδ,
+            hρδ,
+            τ,
+            Hτ,
+            hτ,
+            τ⊥,
+            ζt,
+            NaN,
+            0,
+            Ref(0),
+            "ReducedRankRegression",
+            false
+        )
+    else
+        # Originally, this model was estimated based on a two-step procedure
+        # see Johansen (ET, 1995). The estimates from this procedure can then
+        # be used as starting values for the τ-switching algorithm of Johansen
+        # (SJS, 1995). However, an alterntive and often better initialization
+        # is based on the submodel with (rankI1 - 1, rankI2 + 2), see my dissertation.
+
+        # It seems like these two difference initialization can results in two
+        # local extrema of the log-likelhood for the model (rankI1, rankI2).
+        # Hence we estimate based on both set of starting values and pick the 
+        # one with the better fit
+
+        # Johansen's initialization
+        ft = estimate2step(data, rankI1, rankI2)
+        τ₀ = ft.τ
+        @debug "Initial value based on two step procedure" τ₀
+        fJohansen = estimateτSwitch(data, rankI1, rankI2, τ₀, 5000, 1e-8, true)
+        @debug "loglikelihood" loglikelihood(fJohansen)
+
+        # Noack's initialization
+
+        ft = setrank(data, rankI1 - 1, rankI2 + 2)
+        τ₀ = [β(ft) ft.τ*(nullspace(ρ(ft)'))[:, 1:(rankI2 + 1)]]
+        # τ₀ = [β(ft) ft.τ*(nullspace(ρ(ft)'))[:, 2:end]]
+        # τ₀ = [β(ft) ft.τ*(nullspace(ρ(ft)'))*randn(rankI2 + 2, rankI2 + 1)]
+        @debug "Initial value based on the model (r - 1, s + 2)" τ₀
+        fNoack = estimateτSwitch(data, rankI1, rankI2, τ₀, 5000, 1e-8, true)
+        @debug "loglikelihood" loglikelihood(fNoack)
+
+        return loglikelihood(fJohansen) >= loglikelihood(fNoack) ? fJohansen : fNoack
+    end
 end
 
 setrank(obj::CivecmI2, rankI1::Int64, rankI2::Int64) =
@@ -171,6 +338,7 @@ function estimateτSwitch(
     data::I2Data,
     rankI1::Int,
     rankI2::Int,
+    τ₀::Matrix{Float64},
     maxiter::Int,
     llConvCrit::Float64,
     verbose::Bool,
@@ -183,12 +351,17 @@ function estimateτSwitch(
     iT, p1 = size(data.R2)
     rs = rankI1 + rankI2
 
+    # Check sizes
+    if size(τ₀) != (p1, rankI1 + rankI2)
+        throw(DimensionMismatch("τ₀ should have size $((p1, rankI1 + rankI2)) but had size $(size(τ₀))"))
+    end
+
     # Result matrices
     α = Matrix{Float64}(undef, p, rankI1)
     ρδ = Matrix{Float64}(undef, p1, rankI1)
     Hρδ = Matrix{Float64}(I, p1 * rankI1, p1 * rankI1)
     hρδ = zeros(p1 * rankI1)
-    τ = Matrix{Float64}(undef, p1, rankI1 + rankI2)
+    τ = copy(τ₀)
     Hτ = Matrix{Float64}(I, p1 * (rankI1 + rankI2), p1 * (rankI1 + rankI2))
     hτ = zeros(p1 * (rankI1 + rankI2))
     τ⊥ = Matrix{Float64}(undef, p1, p1 - rankI1 - rankI2)
@@ -209,27 +382,17 @@ function estimateτSwitch(
     res = Matrix{Float64}(undef, iT, p)
     Ω = Matrix{Float64}(I, p, p)
 
-    # Choose initial values from two step estimation procedure
-    estimate2step!(
-        data,
-        rankI1,
-        rankI2,
-        α,
-        ρδ,
-        τ,
-        τ⊥,
-        ζt
-    )
+    @debug "initial τ" τ
 
     # Algorithm
     ll = -floatmax()
     ll0 = -floatmax()
     j = 1
-    local convCount
+    iteration_s = " Iteration: "
+    print(iteration_s)
     for j = 1:maxiter
-        if verbose
-            time() - tt > 1 && println("\nIteration:", j)
-        end
+        print(lpad(j, ndigits(maxiter)))
+        @debug "Iteration" j
         τ⊥[:] = nullspace(τ')[:, 1:p1-rankI1-rankI2]
         Rτ[:, 1:rs] = data.R2 * τ
         Rτ[:, rs+1:end] = data.R1 * τ⊥
@@ -242,12 +405,6 @@ function estimateτSwitch(
             rmul!(α, Diagonal(workRRR))
             ζt[:], res[:] = mreg(data.R0 - Rτ * ρδ * α', R1τ)
             Ω = res'res / iT
-            if verbose
-                # if time() - tt > 1
-                # println("\nτ:\n", τ)
-                println("ll:", loglikelihood(obj))
-                # end
-            end
         else
             switch!(
                 mY,
@@ -262,26 +419,7 @@ function estimateτSwitch(
             )
             ζt .= R1τ \ (data.R0 - Rτ * ρδ * α')
         end
-        # ll = loglikelihood(obj)
-        if verbose
-            if time() - tt > 1
-                # println("\nτ:\n", τ)
-                println("Right after switching given τ\nll:", ll)
-            end
-        end
-        if ll - ll0 < -llConvCrit
-            println("Old likelihood: $(ll0)\nNew likelihood: $(ll)\nIteration: $(j)")
-            error("Likelihood cannot decrease")
-        elseif abs(ll - ll0) < llConvCrit && j > 1 # Use abs to avoid spurious stops due to noise
-            verbose && @printf("Convergence in %d iterations.\n", j - 1)
-            convCount = j
-            break
-        end
-        if isnan(ll)
-            @warn "nans in loglikehood. Aborting!"
-            convCount = maxiter
-            break
-        end
+
         ll0 = ll
         α⊥ = nullspace(α')[:, 1:p-rankI1]
         κ = ζt * α⊥
@@ -297,28 +435,28 @@ function estimateτSwitch(
             data.R0 - data.R2 * τ * ρ * α' -
             data.R1 * (ψ * α' + τ * κ * ((α⊥'Ω * α⊥) \ α⊥'Ω))
         ll = loglikelihood(myres)
-        if verbose
-            if time() - tt > 1
-                # println("\nτ:\n", τ)
-                println("Rigth after estimation of τ\nll:", ll)
-                tt = time()
-            end
-        end
+
+        @debug "Rigth after estimation of τ" ll τ
+
+        print(repeat('\b', ndigits(maxiter)))
+
         if ll - ll0 < -llConvCrit
-            println("Old likelihood: $(ll0)\nNew likelihood: $(ll)\nIteration: $(j)")
+            @info "Old likelihood: $(ll0)\nNew likelihood: $(ll)\nIteration: $(j)"
             error("Likelihood cannot decrease")
         elseif abs(ll - ll0) < llConvCrit # Use abs to avoid spurious stops due to noise
-            verbose && @printf("Convergence in %d iterations.\n", j - 1)
-            convCount = j
+            @debug "Convergence in iterations:" j - 1 ll ll0 llConvCrit
             break
         end
         if isnan(ll)
             @warn "nans in loglikehood. Aborting!"
-            convCount = maxiter
+            j = maxiter
             break
         end
         ll0 = ll
     end
+
+    print(repeat('\b', length(iteration_s)))
+
     return CivecmI2(
         data,
         rankI1,
@@ -334,21 +472,16 @@ function estimateτSwitch(
         ζt,
         llConvCrit,
         maxiter,
-        Ref(convCount),
+        Ref(j),
         "ParuoloRahbek",
         verbose
     )
 end
 
-function estimate2step!(
+function estimate2step(
     data::I2Data,
     rankI1::Int,
-    rankI2::Int,
-    α::Matrix{Float64},
-    ρδ::Matrix{Float64},
-    τ::Matrix{Float64},
-    τ⊥::Matrix{Float64},
-    ζt::Matrix{Float64}
+    rankI2::Int
 )
     _, Res0 = mreg(data.R0, data.R1)
     _, Res1 = mreg(data.R2, data.R1)
@@ -359,30 +492,64 @@ function estimate2step!(
     ξ, vals, η =
         rrr((data.R0 - data.R1 * β * bar(β)'Γt) * nullspace(α'), data.R1 * β⊥, rankI2)
     ξ *= Diagonal(vals)
-    τ[:, 1:rankI1] = β
-    τ[:, rankI1+1:end] = β⊥ * η
-    τ⊥[:] = β⊥ * nullspace(η')
-    ρδ[1:rankI1+rankI2, :] =
-        Matrix{Float64}(I, rankI1 + rankI2, rankI1)
-    ρδ[rankI1+rankI2+1:end, :] = bar(β⊥ * nullspace(η'))'Γt * bar(α)
-    ζt[1:rankI1, :] = bar(β)'Γt
-    ζt[rankI1+1:end, :] = bar(β⊥ * η)'Γt
-    return nothing
+    τ = [β β⊥ * η]
+    τ⊥ = β⊥ * nullspace(η')
+    ρδ = [
+        Matrix{Float64}(I, rankI1 + rankI2, rankI1);
+        bar(β⊥ * nullspace(η'))'Γt * bar(α)
+    ]
+    ζt = [
+        bar(β)'Γt;
+        bar(β⊥ * η)'Γt
+    ]
+    return CivecmI2(
+        data,
+        rankI1,
+        rankI2,
+        α,
+        ρδ,
+        zeros(0, 0),
+        zeros(0),
+        τ,
+        zeros(0, 0),
+        zeros(0),
+        τ⊥,
+        ζt,
+        NaN,
+        -1,
+        Ref(-1),
+        "2Step",
+        false
+    )
+end
+
+struct I2RankTest
+    model_dict::Dict{Tuple{Int,Int},CivecmI2}
+end
+
+function show(io::IO, ::MIME"text/plain", ranktest::I2RankTest)
+    print(io, string(summary(ranktest), "\n\n"))
+    p = maximum(first.(keys(ranktest.model_dict)))
+    pvals = zeros(p, p + 1)
+    llA = loglikelihood(ranktest.model_dict[(p, 0)])
+    for i in 0:(p - 1)
+        for j in 0:(p - i)
+            pvals[i + 1, i + j + 1] = 2*(llA - loglikelihood(ranktest.model_dict[(i, j)]))
+        end
+    end
+    show(io, MIME"text/plain"(), pvals)
 end
 
 function ranktest(obj::CivecmI2)
-    ip = size(obj.data.endogenous, 2)
-    r, s = obj.rankI1, obj.rankI2
-    ll0 = loglikelihood(setrank(obj, ip, 0))
-    tmpTrace = zeros(ip, ip + 1)
-    for i = 0:ip-1
-        for j = 0:ip-i
+    p = size(obj.data.endogenous, 2)
+    trace_dict = Dict((p, 0) => setrank(obj, p, 0))
+    for i = 0:p-1
+        for j = 0:p-i
             obj.verbose && println("r=$(i), s=$(j)")
-            tmpTrace[i+1, i+j+1] = 2 * (ll0 - loglikelihood(setrank(obj, i, j)))
+            trace_dict[(i, j)] = setrank(obj, i, j)
         end
     end
-    setrank(obj, r, s)
-    tmpTrace
+    return I2RankTest(trace_dict)
 end
 
 function ranktest(rng::AbstractRNG, obj::CivecmI2, reps::Int64)
@@ -395,12 +562,13 @@ ranktest(obj::CivecmI2, reps::Int64) = ranktest(Random.default_rng(), obj, reps)
 function ranktestPvaluesSimluateAsymp(
     rng::AbstractRNG,
     obj::CivecmI2,
-    testvalues::Matrix,
+    testvalues::I2RankTest,
     reps::Int64,
 )
     (iT, ip) = size(obj.data.endogenous)
     pvals = zeros(ip, ip + 1)
     rankdist = zeros(reps)
+    llA = loglikelihood(testvalues.model_dict[(ip, 0)])
 
     # Handling the progress bar
     prgr = Progress(ip * (ip + 1) >> 1; dt = 0.5, desc = "Simulating I(2) rank test...")
@@ -410,7 +578,9 @@ function ranktestPvaluesSimluateAsymp(
             for k = 1:reps
                 rankdist[k] = I2TraceSimulate(randn(rng, iT, ip - i), j, obj.data.exogenous)
             end
-            pvals[i+1, i+j+1] = mean(rankdist .> testvalues[i+1, i+j+1])
+            stat_ij = -2*(loglikelihood(testvalues.model_dict[(i, j)]) - llA)
+            pvals[i + 1, i + j + 1] = mean(rankdist .> stat_ij)
+            @debug "stat and p-value" rankI1=i rankI2=j median(rankdist) maximum(rankdist) stat_ij mean(rankdist .> stat_ij)
         end
     end
     return pvals
