@@ -3,10 +3,10 @@ abstract type AbstractCivecm end
 eigvals(obj::AbstractCivecm) = eigvals(convert(VAR, obj))
 
 function loglikelihood(obj::AbstractCivecm)
-    nobs = size(obj.endogenous, 1) - obj.lags
+    nobs = size(obj.data.endogenous, 1) - obj.data.lags
     -nobs * (
         logdet(cholesky!(residualvariance(obj))) -
-        size(obj.endogenous, 2) * (log(nobs) - 1 - log(2π))
+        size(obj.data.endogenous, 2) * (log(nobs) - 1 - log(2π))
     ) / 2
 end
 # loglikelihood(A::StridedMatrix) = -0.5*size(A, 1)*(2sum(log(abs(diag(qr(A).factors)/sqrt(size(A,1))))) - size(A, 2)*(log(size(A, 1)) - 1 - log(2π)))

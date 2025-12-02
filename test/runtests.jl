@@ -1,4 +1,4 @@
-using Cointegration, Test, LinearAlgebra, StatsBase, Statistics, StableRNGs, CSV, DataFrames
+using Cointegration, Test, LinearAlgebra, StatsBase, Statistics, StableRNGs, CSV, DataFrames, ZipFile, Dates
 
 @testset "Basic" begin
     k = 5
@@ -94,41 +94,43 @@ Cointegration.CivecmI1
         f = civecmI2(X, lags = 2)
         rt = ranktest(f)
         @test sprint((io, t) -> show(io, MIME"text/plain"(), t), rt) == """
+Cointegration.I2RankTest
+
 5×6 Matrix{Float64}:
- 768.781  591.41   430.957  280.984   149.057    36.8636
-   0.0    455.037  297.547  148.5      24.8888   21.0544
-   0.0      0.0    151.25    23.776    13.7991   10.397
-   0.0      0.0      0.0     10.2462    4.07213   4.06734
-   0.0      0.0      0.0      0.0       1.45113   1.44657"""
+ 768.781  591.41   430.957  280.984    149.057    36.8636
+   0.0    428.372  274.61   139.985     24.4208   21.0544
+   0.0      0.0    137.816   19.1122    13.2271   10.397
+   0.0      0.0      0.0      9.40648    4.06859   4.06734
+   0.0      0.0      0.0      0.0        1.44772   1.44657"""
 
         rng = StableRNG(123)
         rtsim = ranktest(rng, f, 100)
         @test sprint((io, t) -> show(io, MIME"text/plain"(), t), rtsim[2]) == """
 5×6 Matrix{Float64}:
  0.0  0.0  0.0  0.0   0.0   0.88
- 0.0  0.0  0.0  0.0   0.89  0.87
- 0.0  0.0  0.0  0.79  0.89  0.81
- 0.0  0.0  0.0  0.91  0.98  0.75
+ 0.0  0.0  0.0  0.0   0.91  0.87
+ 0.0  0.0  0.0  0.98  0.9   0.81
+ 0.0  0.0  0.0  0.94  0.98  0.75
  0.0  0.0  0.0  0.0   0.56  0.29"""
 
         f11 = setrank(f, 1, 1)
         @test sprint((io, t) -> show(io, MIME"text/plain"(), t), f11) == """
 β':
 1×5 Matrix{Float64}:
- -0.0214383  -0.00947104  -0.0150298  -0.00571825  0.0427769
+ 0.00531565  0.0144423  0.0102059  -0.00801689  0.00657669
 
 τ⊥δ:
 5×1 Matrix{Float64}:
-  0.0571834
- -0.0232661
- -0.611789
-  0.761213
- -0.0896907
+ -0.269794
+ -0.46154
+  0.743342
+  0.344183
+  0.497622
 
 τ':
 2×5 Matrix{Float64}:
-  0.13321    0.0446713  0.103897  0.0415547  -0.282675
- -0.341134  -0.856249   0.283727  0.208753   -0.159012"""
+ -0.153128  -0.385117   0.335879  -0.322867  -0.718646
+ -0.22323   -0.615825  -0.618447   0.503593  -0.116684"""
 
         @testset "Convert to VAR and simulate" begin
             f_var = convert(VAR, f)
@@ -268,4 +270,52 @@ end
             end
         end
     end
+end
+
+@testset "Juselius and Assenmacher (2017)" begin
+    # Juselius, Katarina, and Katrin Assenmacher. "Real exchange rate persistence and the excess return puzzle: The case of Switzerland versus the US." Journal of Applied Econometrics 32, no. 6 (2017): 1145-1155.
+    # https://onlinelibrary.wiley.com/doi/abs/10.1002/jae.2562
+    zipfile = ZipFile.Reader(download("http://qed.econ.queensu.ca/jae/datasets/juselius002/ja-data.zip"))
+    csvfile = only(filter(f -> occursin("csv", f.name), zipfile.files))
+    # It's quarterly data so eventually, we might want to build some functionality
+    # around https://github.com/matthieugomez/PeriodicalDates.jl
+    df = CSV.read(csvfile, DataFrame)
+    close(zipfile)
+
+    X = [df.LP df.LPus df.LShUS df.B10y df.USB10y df.R3M df.USR3m]
+    # D = [month(df.Column1[i]) == j for i in 1:size(df, 1), j in 1:3]
+    D_season = [month(df.Column1[i]) == j for i in 1:size(df, 1), j in 1:3]
+    D_centered_season = D_season .- 1/4
+    D_extra_season = [df.sea1D df.sea2D df.sea3D] # Should probably have been centered but they are not in the CATS file
+    D_extra = [year(df.Column1[i]) == y && month(df.Column1[i]) == q for i in 1:size(df, 1), (y, q) in [(1980, 2), (1982, 4), (2008, 4)]]
+    D_extra = [year(df.Column1[i]) == y && month(df.Column1[i]) == q for i in 1:size(df, 1), (y, q) in [(1980, 2), (1980, 4), (1981, 4), (1982, 4), (2008, 4)]]
+
+    D = [D_centered_season D_extra_season D_extra]
+    D = [ones(size(X, 1)) D_centered_season D_extra_season D_extra]
+    D_nocentering = [D_season D_extra_season D_extra]
+    D = [ones(size(X, 1)) D_season D_extra_season D_extra]
+    Z = [float.(1:size(X, 1));;]
+
+    ft = civecmI2(X; exogenous = Z, unrestricted = float.(D), lags = 2)
+    ft = civecmI2(X[3:end,:]; exogenous = Z[3:end,:], unrestricted = float.(D[3:end,:]), lags = 2)
+
+    rank_test_vals, rank_p_vals = ranktest(ft, 1000)
+    rank_test_vals
+    rank_p_vals
+
+    ft_nocentering = civecmI2(X; exogenous = Z, unrestricted = float.(D_nocentering), lags = 2)
+    ft_nocentering = civecmI2(X[3:end,:]; exogenous = Z[3:end,:], unrestricted = float.(D_nocentering[3:end,:]), lags = 2)
+
+    rank_test_vals_nocentering, rank_p_vals_nocentering = ranktest(ft_nocentering, 1000)
+    rank_test_vals_nocentering
+    rank_p_vals_nocentering
+
+
+
+    ft1 = civecmI1(X; exogenous = Z, unrestricted = D, lags = 2)
+    ft1 = civecmI1(X; exogenous = Z, lags = 2)
+    ranktest(ft1)
+
+    ft2 = civecmI1(X - D*(D\X); exogenous = Z - D*(D\Z), lags = 2)
+    ranktest(ft2)
 end
