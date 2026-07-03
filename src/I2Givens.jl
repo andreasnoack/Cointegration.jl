@@ -99,7 +99,7 @@ function α(obj::CivecmI2Givens, full::Bool)
     for i = 1:obj.rank[1]
         for j = i+1:p
             Q = LinearAlgebra.Givens(i, j, cos(obj.pars[count]), sin(obj.pars[count]))
-            mul!(Q, ans)
+            lmul!(Q, ans)
             count += 1
         end
     end
@@ -115,7 +115,7 @@ function β(obj::CivecmI2Givens, full::Bool)
     for i = 1:obj.rank[1]
         for j = i+1:p1
             Q = LinearAlgebra.Givens(i, j, cos(obj.pars[count]), sin(obj.pars[count]))
-            mul!(Q, ans)
+            lmul!(Q, ans)
             count += 1
         end
     end
@@ -162,7 +162,7 @@ function ξ(obj::CivecmI2Givens)
     for i = 1:obj.rank[2]
         for j = i+1:p-obj.rank[1]
             Q = LinearAlgebra.Givens(i, j, cos(obj.pars[count]), sin(obj.pars[count]))
-            mul!(Q, ans)
+            lmul!(Q, ans)
             count += 1
         end
     end
@@ -184,7 +184,7 @@ function ηpar(obj::CivecmI2Givens)
     for i = 1:obj.rank[2]
         for j = i+1:p1-obj.rank[1]
             Q = LinearAlgebra.Givens(i, j, cos(obj.pars[count]), sin(obj.pars[count]))
-            mul!(Q, ans)
+            lmul!(Q, ans)
             count += 1
         end
     end

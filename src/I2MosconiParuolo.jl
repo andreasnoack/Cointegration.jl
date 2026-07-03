@@ -62,81 +62,6 @@ function civecmI2(
     return obj
 end
 
-function auxilliaryMatrices!(obj::CivecmI2)
-    iT, p = size(obj.Z0)
-    pexo = size(obj.exogenous, 2)
-    for j = 1:p
-        for i = 1:iT
-            obj.Z0[i, j] =
-                obj.endogenous[i+obj.lags, j] - 2obj.endogenous[i+obj.lags-1, j] +
-                obj.endogenous[i+obj.lags-2, j]
-            obj.Z1[i, j] = obj.endogenous[i+obj.lags-1, j] - obj.endogenous[i+obj.lags-2, j]
-            obj.Z2[i, j] = obj.endogenous[i+obj.lags-1, j]
-        end
-    end
-    for k = 1:obj.lags-2
-        for j = 1:p
-            for i = 1:iT
-                obj.Z3[i, p*(k-1)+j] =
-                    obj.endogenous[i+obj.lags-k, j] - 2obj.endogenous[i+obj.lags-k-1, j] +
-                    obj.endogenous[i+obj.lags-k-2, j]
-            end
-        end
-    end
-    for j = 1:pexo
-        for i = 1:iT
-            obj.Z1[i, p+j] = obj.exogenous[i+obj.lags-1, j] - obj.exogenous[i+obj.lags-2, j]
-            obj.Z2[i, p+j] = obj.exogenous[i+obj.lags-1, j]
-            obj.Z3[i, p*(obj.lags-2)+j] =
-                obj.exogenous[i+obj.lags, j] - 2obj.exogenous[i+obj.lags-1, j] +
-                obj.exogenous[i+obj.lags-2, j]
-        end
-    end
-    for k = 1:obj.lags-2
-        for j = 1:pexo
-            for i = 1:iT
-                obj.Z3[i, p*(obj.lags-2)+pexo*k+j] =
-                    obj.exogenous[i+obj.lags-k, j] - 2obj.exogenous[i+obj.lags-k-1, j] +
-                    obj.exogenous[i+obj.lags-k-2, j]
-            end
-        end
-    end
-    if size(obj.Z3, 2) > 0
-        obj.R0[:] = mreg(obj.Z0, obj.Z3)[2]
-        obj.R1[:] = mreg(obj.Z1, obj.Z3)[2]
-        obj.R2[:] = mreg(obj.Z2, obj.Z3)[2]
-    else
-        obj.R0[:] = obj.Z0
-        obj.R1[:] = obj.Z1
-        obj.R2[:] = obj.Z2
-    end
-    return obj
-end
-
-copy(obj::CivecmI2) = CivecmI2(
-    copy(obj.endogenous),
-    copy(obj.exogenous),
-    obj.lags,
-    obj.rankI1,
-    obj.rankI2,
-    copy(obj.α),
-    copy(obj.β),
-    copy(obj.ν),
-    copy(obj.ξ),
-    copy(obj.γ),
-    copy(obj.σ),
-    obj.llConvCrit,
-    obj.maxiter,
-    obj.method,
-    copy(obj.Z0),
-    copy(obj.Z1),
-    copy(obj.Z2),
-    copy(obj.Z3),
-    copy(obj.R0),
-    copy(obj.R1),
-    copy(obj.R2),
-)
-
 function setrank(obj::CivecmI2, rankI1::Int64, rankI2::Int64)
     if rankI1 + rankI2 > size(obj.endogenous, 2)
         error("Illegal choice of rank")
@@ -161,7 +86,7 @@ function estimate!(obj::CivecmI2)
         R1 = obj.R2 - obj.R1 * (obj.R1 \ obj.R2)
         obj.α[:], vals, obj.β[:] = rrr(R0, R1)
         obj.α[:] *= Diagonal(vals)
-        Γ = (obj.R1 \ (obj.R0 - obj.R2 * obj.β * obj.α'))'
+        # Γ = (obj.R1 \ (obj.R0 - obj.R2 * obj.β * obj.α'))'
     end
     if obj.method == "MP"
         return estimateSwitch!(obj)

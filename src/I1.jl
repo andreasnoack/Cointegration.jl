@@ -1,8 +1,105 @@
-struct CivecmI1 <: AbstractCivecm
+struct I1Data
     endogenous::Matrix{Float64}
     exogenous::Matrix{Float64}
     unrestricted::Matrix{Float64}
     lags::Int64
+    Z0::Matrix{Float64}
+    Z1::Matrix{Float64}
+    Z2::Matrix{Float64}
+    R0::Matrix{Float64}
+    R1::Matrix{Float64}
+end
+
+function I1Data(
+    endogenous::Matrix{Float64},
+    exogenous::Matrix{Float64},
+    unrestricted::Matrix{Float64},
+    lags::Int64
+)
+    ss, p = size(endogenous)
+    pexo = size(exogenous, 2)
+    punres = size(unrestricted, 2)
+    p1 = p + pexo
+    iT = ss - lags
+
+    Z0 = Matrix{Float64}(undef, iT, p)
+    Z1 = Matrix{Float64}(undef, iT, p1)
+    Z2 = Matrix{Float64}(undef, iT, (lags - 1) * p + lags * pexo + punres)
+    R0 = Matrix{Float64}(undef, iT, p)
+    R1 = Matrix{Float64}(undef, iT, p1)
+
+    # Endogenous variables
+    ## k = 1
+    for j = 1:p
+        for i = 1:iT
+            # First differences
+            Z0[i, j] = endogenous[i+lags, j] - endogenous[i+lags-1, j]
+
+            # Lagged levels
+            Z1[i, j] = endogenous[i+lags-1, j]
+        end
+    end
+    ## Lags (k > 1)
+    for k = 1:lags-1
+        for j = 1:p
+            for i = 1:iT
+                # Lagged first differences
+                Z2[i, p*(k-1)+j] =
+                    endogenous[i+lags-k, j] - endogenous[i+lags-k-1, j]
+            end
+        end
+    end
+
+    # Exogenous variables
+    ## k = 1
+    for j = 1:pexo
+        for i = 1:iT
+            # Lagged levels
+            Z1[i, p+j] = exogenous[i+lags-1, j]
+
+            # Lagged first differences
+            Z2[i, p*(lags-1)+j] =
+                exogenous[i+lags, j] - exogenous[i+lags-1, j]
+        end
+    end
+    ## Lags (k > 1)
+    for k = 1:lags-1
+        for j = 1:pexo
+            for i = 1:iT
+                # Lagged first differences
+                Z2[i, p*(lags-1)+pexo*k+j] =
+                    exogenous[i+lags-k, j] - exogenous[i+lags-k-1, j]
+            end
+        end
+    end
+
+    # Unrestriced variables
+    Z2[:, (end-punres+1):end] = unrestricted[(lags+1):end, :]
+
+    # Compute concentrated quantities
+    if size(Z2, 2) > 0
+        R0[:] = mreg(Z0, Z2)[2]
+        R1[:] = mreg(Z1, Z2)[2]
+    else
+        R0[:] = Z0
+        R1[:] = Z1
+    end
+
+    return I1Data(
+        endogenous,
+        exogenous,
+        unrestricted,
+        lags,
+        Z0,
+        Z1,
+        Z2,
+        R0,
+        R1
+    )
+end
+
+struct CivecmI1 <: AbstractCivecm
+    data::I1Data
     α::Matrix{Float64}
     β::Matrix{Float64}
     Γ::Matrix{Float64}
@@ -12,11 +109,6 @@ struct CivecmI1 <: AbstractCivecm
     llConvCrit::Float64
     maxiter::Int64
     verbose::Bool
-    Z0::Matrix{Float64}
-    Z1::Matrix{Float64}
-    Z2::Matrix{Float64}
-    R0::Matrix{Float64}
-    R1::Matrix{Float64}
 end
 
 function civecmI1(
@@ -33,11 +125,15 @@ function civecmI1(
     p1 = p + pexo
     iT = ss - lags
 
-    obj = CivecmI1(
+    data = I1Data(
         endogenous,
         exogenous,
         unrestricted,
         lags,
+    )
+
+    obj = CivecmI1(
+        data,
         Matrix{Float64}(undef, p, rank),
         Matrix{Float64}(undef, p1, rank),
         Matrix{Float64}(undef, p, (lags - 1) * p + lags * pexo + punres),
@@ -47,13 +143,8 @@ function civecmI1(
         1.0e-8,
         5000,
         false,
-        Matrix{Float64}(undef, iT, p),
-        Matrix{Float64}(undef, iT, p1),
-        Matrix{Float64}(undef, iT, (lags - 1) * p + lags * pexo + punres),
-        Matrix{Float64}(undef, iT, p),
-        Matrix{Float64}(undef, iT, p1),
     )
-    auxilliaryMatrices!(obj)
+
     estimateEigen!(obj)
     return obj
 end
@@ -69,76 +160,9 @@ function Base.getproperty(obj::CivecmI1, s::Symbol)
     end
 end
 
-function auxilliaryMatrices!(obj::CivecmI1)
-    iT, p = size(obj.Z0)
-    pexo = size(obj.exogenous, 2)
-    punres = size(obj.unrestricted, 2)
-
-    # Endogenous variables
-    ## k = 1
-    for j = 1:p
-        for i = 1:iT
-            # First differences
-            obj.Z0[i, j] = obj.endogenous[i+obj.lags, j] - obj.endogenous[i+obj.lags-1, j]
-
-            # Lagged levels
-            obj.Z1[i, j] = obj.endogenous[i+obj.lags-1, j]
-        end
-    end
-    ## Lags (k > 1)
-    for k = 1:obj.lags-1
-        for j = 1:p
-            for i = 1:iT
-                # Lagged first differences
-                obj.Z2[i, p*(k-1)+j] =
-                    obj.endogenous[i+obj.lags-k, j] - obj.endogenous[i+obj.lags-k-1, j]
-            end
-        end
-    end
-
-    # Exogenous variables
-    ## k = 1
-    for j = 1:pexo
-        for i = 1:iT
-            # Lagged levels
-            obj.Z1[i, p+j] = obj.exogenous[i+obj.lags-1, j]
-
-            # Lagged first differences
-            obj.Z2[i, p*(obj.lags-1)+j] =
-                obj.exogenous[i+obj.lags, j] - obj.exogenous[i+obj.lags-1, j]
-        end
-    end
-    ## Lags (k > 1)
-    for k = 1:obj.lags-1
-        for j = 1:pexo
-            for i = 1:iT
-                # Lagged first differences
-                obj.Z2[i, p*(obj.lags-1)+pexo*k+j] =
-                    obj.exogenous[i+obj.lags-k, j] - obj.exogenous[i+obj.lags-k-1, j]
-            end
-        end
-    end
-
-    # Unrestriced variables
-    obj.Z2[:, (end-punres+1):end] = obj.unrestricted[(obj.lags+1):end, :]
-
-    # Compute concentrated quantities
-    if size(obj.Z2, 2) > 0
-        obj.R0[:] = mreg(obj.Z0, obj.Z2)[2]
-        obj.R1[:] = mreg(obj.Z1, obj.Z2)[2]
-    else
-        obj.R0[:] = obj.Z0
-        obj.R1[:] = obj.Z1
-    end
-
-    return obj
-end
 
 copy(obj::CivecmI1) = CivecmI1(
-    copy(obj.endogenous),
-    copy(obj.exogenous),
-    copy(obj.unrestricted),
-    obj.lags,
+    copy(obj.data),
     copy(obj.α),
     copy(obj.β),
     copy(obj.Γ),
@@ -148,11 +172,6 @@ copy(obj::CivecmI1) = CivecmI1(
     obj.llConvCrit,
     obj.maxiter,
     obj.verbose,
-    copy(obj.Z0),
-    copy(obj.Z1),
-    copy(obj.Z2),
-    copy(obj.R0),
-    copy(obj.R1),
 )
 
 function show(io::IO, ::MIME"text/plain", obj::CivecmI1)
@@ -166,17 +185,14 @@ function show(io::IO, ::MIME"text/plain", obj::CivecmI1)
 end
 
 function setrank(obj::CivecmI1, rank::Int64)
-    α = Matrix{Float64}(undef, size(obj.R0, 2), rank)
-    β = Matrix{Float64}(undef, size(obj.R1, 2), rank)
-    Hα = Matrix{Float64}(I, size(obj.R0, 2) * rank, size(obj.R0, 2) * rank)
-    Hβ = Matrix{Float64}(I, size(obj.R1, 2) * rank, size(obj.R1, 2) * rank)
-    hβ = zeros(size(obj.R1, 2) * rank)
+    α = Matrix{Float64}(undef, size(obj.data.R0, 2), rank)
+    β = Matrix{Float64}(undef, size(obj.data.R1, 2), rank)
+    Hα = Matrix{Float64}(I, size(obj.data.R0, 2) * rank, size(obj.data.R0, 2) * rank)
+    Hβ = Matrix{Float64}(I, size(obj.data.R1, 2) * rank, size(obj.data.R1, 2) * rank)
+    hβ = zeros(size(obj.data.R1, 2) * rank)
 
     newobj = CivecmI1(
-        obj.endogenous,
-        obj.exogenous,
-        obj.unrestricted,
-        obj.lags,
+        obj.data,
         α,
         β,
         obj.Γ,
@@ -186,11 +202,6 @@ function setrank(obj::CivecmI1, rank::Int64)
         obj.llConvCrit,
         obj.maxiter,
         obj.verbose,
-        obj.Z0,
-        obj.Z1,
-        obj.Z2,
-        obj.R0,
-        obj.R1,
     )
 
     return estimateEigen!(newobj)
@@ -203,10 +214,7 @@ function restrict(obj::CivecmI1; Hβ = nothing, hβ = nothing, Hα = nothing, ve
     _Hα = Hα === nothing ? obj.Hα : Hα
 
     newobj = CivecmI1(
-        obj.endogenous,
-        obj.exogenous,
-        obj.unrestricted,
-        obj.lags,
+        obj.data,
         copy(obj.α),
         copy(obj.β),
         copy(obj.Γ),
@@ -216,11 +224,6 @@ function restrict(obj::CivecmI1; Hβ = nothing, hβ = nothing, Hα = nothing, ve
         obj.llConvCrit,
         obj.maxiter,
         obj.verbose,
-        obj.Z0,
-        obj.Z1,
-        obj.Z2,
-        obj.R0,
-        obj.R1,
     )
 
     estimateSwitch!(newobj, verbose = verbose)
@@ -234,24 +237,24 @@ function estimate!(obj::CivecmI1; method = :switch)
     elseif method == :eigen
         return estimateEigen!(obj)
     else
-        error("no such method")
+        throw(ArgumentError("method mist be :switch or :Boswijk but was :$method"))
     end
 end
 
 function estimateEigen!(obj::CivecmI1)
-    obj.α[:], svdvals, obj.β[:] = rrr(obj.R0, obj.R1, size(obj.α, 2))
+    obj.α[:], svdvals, obj.β[:] = rrr(obj.data.R0, obj.data.R1, size(obj.α, 2))
     obj.α[:] = obj.α * Diagonal(svdvals)
-    obj.Γ[:] = mreg(obj.Z0 - obj.Z1 * obj.β * obj.α', obj.Z2)[1]'
+    obj.Γ[:] = mreg(obj.data.Z0 - obj.data.Z1 * obj.β * obj.α', obj.data.Z2)[1]'
     return obj
 end
 
 function estimateSwitch!(obj::CivecmI1; verbose = false)
-    iT = size(obj.Z0, 1)
-    S11 = rmul!(obj.R1'obj.R1, 1 / iT)
-    S10 = rmul!(obj.R1'obj.R0, 1 / iT)
+    iT = size(obj.data.Z0, 1)
+    S11 = rmul!(obj.data.R1'obj.data.R1, 1 / iT)
+    S10 = rmul!(obj.data.R1'obj.data.R0, 1 / iT)
     ll0 = -floatmax()
     ll1 = ll0
-    for i = 1:obj.maxiter
+    for _ = 1:obj.maxiter
         OmegaInv = inv(cholesky!(residualvariance(obj)))
         aoas11 = kron(obj.α' * OmegaInv * obj.α, S11)
         φ =
@@ -275,16 +278,16 @@ function estimateSwitch!(obj::CivecmI1; verbose = false)
 end
 
 function ranktest(rng::AbstractRNG, obj::CivecmI1, reps::Int)
-    _, svdvals, _ = rrr(obj.R0, obj.R1)
-    tmpTrace = -size(obj.Z0, 1) * reverse(cumsum(reverse(log.(1 .- svdvals .^ 2))))
+    _, svdvals, _ = rrr(obj.data.R0, obj.data.R1)
+    tmpTrace = -size(obj.data.Z0, 1) * reverse(cumsum(reverse(log.(1 .- svdvals .^ 2))))
     tmpPVals = zeros(size(tmpTrace))
     rankdist = zeros(reps)
-    iT, ip = size(obj.endogenous)
-    for i = 1:size(tmpTrace, 1)
+    iT, ip = size(obj.data.endogenous)
+    for i = axes(tmpTrace, 1)
         print("Simulation of model H(", i, ")\r")
         for k = 1:reps
             rankdist[k] =
-                I2TraceSimulate(randn(rng, iT, ip - i + 1), ip - i + 1, obj.exogenous)
+                I2TraceSimulate(randn(rng, iT, ip - i + 1), ip - i + 1, obj.data.exogenous)
         end
         tmpPVals[i] = mean(rankdist .> tmpTrace[i])
     end
@@ -294,7 +297,7 @@ end
 ranktest(obj::CivecmI1, reps::Int) = ranktest(Random.default_rng(), obj, reps)
 ranktest(obj::CivecmI1) = ranktest(obj, 10000)
 
-residuals(obj::CivecmI1) = obj.R0 - obj.R1 * obj.β * obj.α'
+residuals(obj::CivecmI1) = obj.data.R0 - obj.data.R1 * obj.β * obj.α'
 
 ## I1 ranktest
 
